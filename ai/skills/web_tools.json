@@ -1,0 +1,30 @@
+[
+  {
+    "name": "search_web",
+    "description": "Search the web using Google Search for current information, facts, news, or answers to questions",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The search query (e.g., 'latest SpaceX launch', 'weather in NYC', 'who won the 2024 election')"
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "open_in_browser",
+    "description": "Open a URL in the user's default web browser (for viewing files, pages, or links)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The complete URL to open in browser (e.g., 'https://drive.google.com/file/d/xxx/view')"
+        }
+      },
+      "required": ["url"]
+    }
+  }
+]

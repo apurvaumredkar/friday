@@ -1,0 +1,56 @@
+[
+  {
+    "name": "get_place_info",
+    "description": "Get detailed information about a specific place or location (address, rating, hours, phone, website)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The place to search for (e.g., 'Empire State Building', 'Starbucks Times Square', 'Central Park')"
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "get_transit_info",
+    "description": "Get public transit directions and information between two locations (bus, subway, train)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "Starting location (address or place name)"
+        },
+        "destination": {
+          "type": "string",
+          "description": "Destination location (address or place name)"
+        }
+      },
+      "required": ["origin", "destination"]
+    }
+  },
+  {
+    "name": "get_directions",
+    "description": "Get driving, walking, or cycling directions from point A to point B",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "Starting location (address or place name)"
+        },
+        "destination": {
+          "type": "string",
+          "description": "Destination location (address or place name)"
+        },
+        "mode": {
+          "type": "string",
+          "description": "Travel mode: DRIVE (default), WALK, or BICYCLE"
+        }
+      },
+      "required": ["origin", "destination"]
+    }
+  }
+]

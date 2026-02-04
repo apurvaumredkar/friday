@@ -1,0 +1,8 @@
+.env
+.venv
+.claude
+services/google_workspace/google_auth.json
+__pycache__
+tmp/
+friday.log
+ai/models/

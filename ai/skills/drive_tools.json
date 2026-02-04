@@ -1,0 +1,127 @@
+[
+  {
+    "name": "search_files",
+    "description": "Search for files by name in Google Drive and get their view links",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Search term to match against file names (partial match supported)"
+        },
+        "page_size": {
+          "type": "number",
+          "description": "Maximum number of results to return",
+          "default": 10
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "upload_file",
+    "description": "Upload a file to Google Drive (optionally to a specific folder)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "The filename to use in Google Drive"
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "MIME type of the file (e.g., 'application/pdf', 'image/png')",
+          "default": "application/octet-stream"
+        },
+        "folder_id": {
+          "type": "string",
+          "description": "Optional Google Drive folder ID to upload to (use environment variable like PAYCHECK_FOLDER_ID if specified)"
+        }
+      },
+      "required": ["filename"]
+    }
+  },
+  {
+    "name": "list_files",
+    "description": "List files in Google Drive with optional filters",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "folder_id": {
+          "type": "string",
+          "description": "Optional folder ID to list files from"
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "Optional MIME type filter (e.g., 'application/pdf')"
+        },
+        "page_size": {
+          "type": "number",
+          "description": "Maximum number of files to return",
+          "default": 100
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "get_file_metadata",
+    "description": "Get metadata for a specific file in Google Drive",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "string",
+          "description": "The Google Drive file ID"
+        }
+      },
+      "required": ["file_id"]
+    }
+  },
+  {
+    "name": "download_file",
+    "description": "Download a file from Google Drive",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "string",
+          "description": "The Google Drive file ID to download"
+        }
+      },
+      "required": ["file_id"]
+    }
+  },
+  {
+    "name": "delete_file",
+    "description": "Delete a file from Google Drive",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "string",
+          "description": "The Google Drive file ID to delete"
+        }
+      },
+      "required": ["file_id"]
+    }
+  },
+  {
+    "name": "create_folder",
+    "description": "Create a new folder in Google Drive",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The folder name"
+        },
+        "parent_folder_id": {
+          "type": "string",
+          "description": "Optional parent folder ID"
+        }
+      },
+      "required": ["name"]
+    }
+  }
+]

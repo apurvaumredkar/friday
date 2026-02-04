@@ -1,0 +1,38 @@
+[
+  {
+    "name": "read_pdf",
+    "description": "Read and extract text content from an uploaded PDF document",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "search_pdf",
+    "description": "Search for specific text within the uploaded PDF",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Text to search for in the document"
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "description": "Whether search is case sensitive (default: false)"
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "get_pdf_info",
+    "description": "Get PDF metadata and structure (page count, title, headings)",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  }
+]

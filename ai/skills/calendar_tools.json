@@ -1,0 +1,124 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "create_event",
+      "description": "Create a new calendar event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Event title/summary"
+          },
+          "date": {
+            "type": "string",
+            "description": "Event date in YYYY-MM-DD format"
+          },
+          "time": {
+            "type": "string",
+            "description": "Event start time in HH:MM format (24-hour)"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Event duration in minutes"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional event description/notes"
+          }
+        },
+        "required": ["title", "date", "time", "duration_minutes"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_events",
+      "description": "List calendar events within a date range",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date in YYYY-MM-DD format"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date in YYYY-MM-DD format"
+          }
+        },
+        "required": ["start_date", "end_date"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "check_availability",
+      "description": "Check if a time slot is available (no conflicting events)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date to check in YYYY-MM-DD format"
+          },
+          "time": {
+            "type": "string",
+            "description": "Start time in HH:MM format (24-hour)"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Duration to check in minutes"
+          }
+        },
+        "required": ["date", "time", "duration_minutes"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_event",
+      "description": "Update an existing calendar event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID from list_events"
+          },
+          "field": {
+            "type": "string",
+            "enum": ["summary", "start", "end", "description"],
+            "description": "Field to update"
+          },
+          "new_value": {
+            "type": "string",
+            "description": "New value for the field"
+          }
+        },
+        "required": ["event_id", "field", "new_value"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_event",
+      "description": "Delete a calendar event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID from list_events to delete"
+          }
+        },
+        "required": ["event_id"]
+      }
+    }
+  }
+]

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FRIDAY</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <header>
+    <pre class="ascii-logo">
+███████╗██████╗ ██╗██████╗  █████╗ ██╗   ██╗
+██╔════╝██╔══██╗██║██╔══██╗██╔══██╗╚██╗ ██╔╝
+█████╗  ██████╔╝██║██║  ██║███████║ ╚████╔╝
+██╔══╝  ██╔══██╗██║██║  ██║██╔══██║  ╚██╔╝
+██║     ██║  ██║██║██████╔╝██║  ██║   ██║
+╚═╝     ╚═╝  ╚═╝╚═╝╚═════╝ ╚═╝  ╚═╝   ╚═╝   </pre>
+    <div class="status-indicator">
+      <span id="statusDot" class="status-dot online"></span>
+      <span id="statusText">Online</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Panel (10%) - Feature Toggles -->
+    <aside class="left-panel">
+      <section class="features">
+        <h3>Features</h3>
+        <div id="featureToggles">
+          <!-- Feature toggles will be populated by JavaScript -->
+        </div>
+      </section>
+    </aside>
+
+    <!-- Center Panel (65%) - Chat Interface -->
+    <section class="center-panel" id="centerPanel">
+      <div class="messages" id="messages">
+        <!-- Welcome message -->
+        <div class="message assistant">
+          <div class="content">
+            <p>Hi! I'm Friday, your AI assistant. How can I help you today?</p>
+            <span class="timestamp">Just now</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <textarea id="messageInput" placeholder="Message Friday..." rows="1"></textarea>
+
+        <button id="sendBtn" title="Send message (Enter)">
+          <span class="icon">➤</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Right Panel (25%) - Live Logs -->
+    <aside class="right-panel">
+      <pre id="logOutput" class="log-output">Connecting to log stream...</pre>
+    </aside>
+  </main>
+
+  <script type="module" src="/static/main.js"></script>
+</body>
+
+</html>

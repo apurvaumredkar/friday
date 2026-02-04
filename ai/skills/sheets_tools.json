@@ -1,0 +1,97 @@
+[
+  {
+    "name": "append_row",
+    "description": "Append a row of data to a Google Sheet at the next available row",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "description": "The Google Sheet ID (from the URL or environment variable like PAYCHECK_SHEET_ID)"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of values to append as a row (order matters)"
+        },
+        "sheet_name": {
+          "type": "string",
+          "description": "Name of the sheet tab",
+          "default": "Sheet1"
+        },
+        "start_column": {
+          "type": "string",
+          "description": "Starting column letter (e.g., 'A', 'B')",
+          "default": "A"
+        }
+      },
+      "required": ["sheet_id", "values"]
+    }
+  },
+  {
+    "name": "read_range",
+    "description": "Read values from a specific range in a Google Sheet",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "description": "The Google Sheet ID"
+        },
+        "range_name": {
+          "type": "string",
+          "description": "A1 notation range (e.g., 'Sheet1!A1:C10', 'Data!B2:D50')"
+        }
+      },
+      "required": ["sheet_id", "range_name"]
+    }
+  },
+  {
+    "name": "update_range",
+    "description": "Update values in a specific range of a Google Sheet",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "description": "The Google Sheet ID"
+        },
+        "range_name": {
+          "type": "string",
+          "description": "A1 notation range (e.g., 'Sheet1!A1:C10')"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "2D array of values to write (rows and columns)"
+        }
+      },
+      "required": ["sheet_id", "range_name", "values"]
+    }
+  },
+  {
+    "name": "clear_range",
+    "description": "Clear all values in a specific range of a Google Sheet",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "description": "The Google Sheet ID"
+        },
+        "range_name": {
+          "type": "string",
+          "description": "A1 notation range to clear (e.g., 'Sheet1!A1:C10')"
+        }
+      },
+      "required": ["sheet_id", "range_name"]
+    }
+  }
+]
