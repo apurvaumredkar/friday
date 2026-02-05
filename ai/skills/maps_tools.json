@@ -15,7 +15,7 @@
   },
   {
     "name": "get_transit_info",
-    "description": "Get public transit directions and information between two locations (bus, subway, train)",
+    "description": "Open Google Maps in browser showing public transit directions (bus, subway, train) between two locations",
     "parameters": {
       "type": "object",
       "properties": {
@@ -33,7 +33,7 @@
   },
   {
     "name": "get_directions",
-    "description": "Get driving, walking, or cycling directions from point A to point B",
+    "description": "Open Google Maps in browser showing driving, walking, or cycling directions from point A to point B",
     "parameters": {
       "type": "object",
       "properties": {

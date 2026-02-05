@@ -78,8 +78,8 @@ def open_in_browser(url: str) -> str:
         is_wsl = "microsoft" in platform.uname().release.lower()
 
         if is_wsl:
-            # Use Windows cmd.exe to open URL from WSL
-            subprocess.run(["cmd.exe", "/c", "start", url], check=True)
+            # Use PowerShell Start-Process to open URL in default browser
+            subprocess.run(["powershell.exe", "-Command", f'Start-Process "{url}"'])
         else:
             webbrowser.open(url)
 

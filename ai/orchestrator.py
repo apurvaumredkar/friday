@@ -34,7 +34,7 @@ class Friday:
         self.builder.add_edge("web", "root")  # Web operations return to root for reflection
         self.builder.add_edge("skill", "root")  # Skills return to root for reflection
         self.builder.add_edge("calendar", "root")  # Calendar returns to root for reflection
-        self.builder.add_edge("maps", "root")  # Maps operations return to root for reflection
+        self.builder.add_conditional_edges("maps", self.maps_should_continue)  # Conditional: browser->END, place->root
         self.builder.add_edge("docs", "root")  # Docs operations return to root for reflection
         self.app = self.builder.compile()
 
@@ -288,7 +288,7 @@ Paycheck text:
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
     def maps_node(self, state: AgentState):
-        """Handle maps operations (places, directions, transit) and pass result back to root."""
+        """Handle maps operations (places, directions, transit)."""
         try:
             last_content = state["messages"][-1]["content"]
 
@@ -303,7 +303,17 @@ Paycheck text:
             # Execute maps operation
             tool_result = maps_agent(command)
 
-            # Add tool result as system message for root
+            # Check if browser was opened (2-stage: skip reflection, return directly)
+            if tool_result.startswith("[BROWSER]"):
+                # Remove the marker and return as final assistant message
+                final_message = tool_result.replace("[BROWSER] ", "")
+                logger.info(f"[MAPS] Browser operation - returning directly to user")
+                return {
+                    "messages": [{"role": "assistant", "content": final_message}],
+                    "tool_result": tool_result  # Set to trigger END in should_continue
+                }
+
+            # For place info, continue to root for reflection (3-stage)
             tool_message = {
                 "role": "system",
                 "content": f"[TOOL RESULT - Maps Operation]\n{tool_result}"
@@ -352,6 +362,19 @@ Paycheck text:
             logger.error(f"[DOCS] Error: {e}", exc_info=True)
             error_msg = {"role": "system", "content": f"[TOOL ERROR - Docs] {str(e)}"}
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
+
+    def maps_should_continue(self, state: AgentState):
+        """Route from maps node: browser operations go to END, place info goes to root."""
+        tool_result = state.get("tool_result", "")
+
+        # Browser operations (directions/transit) go directly to END
+        if tool_result.startswith("[BROWSER]"):
+            logger.info("[ROUTING] Maps browser operation - ending (2-stage)")
+            return END
+
+        # Place info operations go to root for reflection (3-stage)
+        logger.info("[ROUTING] Maps place info - going to root for reflection")
+        return "root"
 
     def should_continue(self, state: AgentState):
         """Route from root agent to specialized nodes or skills."""
