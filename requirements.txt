@@ -46,4 +46,4 @@ soxr>=0.3.0
 
 # Long-term Memory (Semantic Search)
 sentence-transformers>=2.2.0
-chromadb>=0.4.0
+qdrant-client

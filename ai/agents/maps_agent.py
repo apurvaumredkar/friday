@@ -14,6 +14,7 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from openai import OpenAI
 from ai.agents.web_agent import open_in_browser
+from ai.config import get_model, get_base_url, get_api_key
 
 load_dotenv()
 
@@ -293,14 +294,14 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         tools_text = "\n\nAvailable functions:\n" + json.dumps(maps_tools, indent=2)
         system_prompt += tools_text
 
-        # Call Qwen via OpenRouter (minimal context!)
+        # Call tool model via OpenRouter (minimal context!)
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.getenv("OPENROUTER_API_KEY")
+            base_url=get_base_url(),
+            api_key=get_api_key()
         )
 
         response = client.chat.completions.create(
-            model="openai/gpt-oss-20b:free",
+            model=get_model("tool"),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}

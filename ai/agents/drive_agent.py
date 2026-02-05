@@ -9,6 +9,7 @@ from openai import OpenAI
 from typing import Optional
 
 from ._oauth import get_access_token
+from ai.config import get_model, get_base_url, get_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -363,14 +364,14 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         tools_text = "\n\nAvailable functions:\n" + json.dumps(drive_tools, indent=2)
         system_prompt += tools_text
 
-        # Call Qwen via OpenRouter
+        # Call tool model via OpenRouter
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.getenv("OPENROUTER_API_KEY")
+            base_url=get_base_url(),
+            api_key=get_api_key()
         )
 
         response = client.chat.completions.create(
-            model="openai/gpt-oss-20b:free",
+            model=get_model("tool"),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}

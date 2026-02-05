@@ -57,15 +57,15 @@ The `Friday` class uses LangGraph's `StateGraph` to route messages through nodes
 ### Self-Contained Agents (`ai/agents/`)
 Each agent module is **fully self-contained**, combining both the agent logic (LLM-based tool extraction) AND service operations (API calls) in a single file:
 
-| Agent | Model | Purpose | Contains |
-|-------|-------|---------|----------|
-| `root_agent.py` | Nemotron 3 Nano 30B | Main orchestrator, text chat, routing | Agent only |
-| `calendar_agent.py` | GPT OSS 20B | Calendar management | Agent + Google Calendar API |
-| `sheets_agent.py` | GPT OSS 20B | Spreadsheet operations | Agent + Google Sheets API |
-| `drive_agent.py` | GPT OSS 20B | File storage | Agent + Google Drive API |
-| `web_agent.py` | GPT OSS 20B | Web search and URL fetching | Agent + Gemini Search + httpx |
-| `maps_agent.py` | GPT OSS 20B | Maps, directions, transit | Agent + Routes API + Places API |
-| `docs_agent.py` | GPT OSS 20B | Document parsing (PDF) | Agent + pymupdf4llm |
+| Agent | Model (OpenRouter) | Purpose | Contains |
+|-------|---------------------|---------|----------|
+| `root_agent.py` | `nvidia/nemotron-3-nano-30b-a3b:free` | Main orchestrator, text chat, routing | Agent only |
+| `calendar_agent.py` | `openai/gpt-oss-20b:free` | Calendar management | Agent + Google Calendar API |
+| `sheets_agent.py` | `openai/gpt-oss-20b:free` | Spreadsheet operations | Agent + Google Sheets API |
+| `drive_agent.py` | `openai/gpt-oss-20b:free` | File storage | Agent + Google Drive API |
+| `web_agent.py` | `openai/gpt-oss-20b:free` | Web search and URL fetching | Agent + Gemini Search + httpx |
+| `maps_agent.py` | `openai/gpt-oss-20b:free` | Maps, directions, transit | Agent + Places API (browser for directions) |
+| `docs_agent.py` | `openai/gpt-oss-20b:free` | Document parsing (PDF) | Agent + pymupdf4llm |
 
 **Shared utilities**:
 - `_oauth.py`: OAuth2 token management for Google Workspace agents
