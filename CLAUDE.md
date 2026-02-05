@@ -60,12 +60,12 @@ Each agent module is **fully self-contained**, combining both the agent logic (L
 | Agent | Model (OpenRouter) | Purpose | Contains |
 |-------|---------------------|---------|----------|
 | `root_agent.py` | `nvidia/nemotron-3-nano-30b-a3b:free` | Main orchestrator, text chat, routing | Agent only |
-| `calendar_agent.py` | `openai/gpt-oss-20b:free` | Calendar management | Agent + Google Calendar API |
-| `sheets_agent.py` | `openai/gpt-oss-20b:free` | Spreadsheet operations | Agent + Google Sheets API |
-| `drive_agent.py` | `openai/gpt-oss-20b:free` | File storage | Agent + Google Drive API |
-| `web_agent.py` | `openai/gpt-oss-20b:free` | Web search and URL fetching | Agent + Gemini Search + httpx |
-| `maps_agent.py` | `openai/gpt-oss-20b:free` | Maps, directions, transit | Agent + Places API (browser for directions) |
-| `docs_agent.py` | `openai/gpt-oss-20b:free` | Document parsing (PDF) | Agent + pymupdf4llm |
+| `calendar_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | Calendar management | Agent + Google Calendar API |
+| `sheets_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | Spreadsheet operations | Agent + Google Sheets API |
+| `drive_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | File storage | Agent + Google Drive API |
+| `web_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | Web search and URL fetching | Agent + Gemini Search + httpx |
+| `maps_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | Maps, directions, transit | Agent + Places API (browser for directions) |
+| `docs_agent.py` | `nvidia/nemotron-nano-12b-v2-vl:free` | Document parsing (PDF) | Agent + pymupdf4llm |
 
 **Shared utilities**:
 - `_oauth.py`: OAuth2 token management for Google Workspace agents
