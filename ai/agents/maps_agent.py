@@ -8,15 +8,11 @@ Uses Places API for location details, opens Google Maps in browser for direction
 import os
 import json
 import logging
-import httpx
-from pathlib import Path
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
-from openai import OpenAI
 from ai.agents.web_agent import open_in_browser
-from ai.config import get_model, get_base_url, get_api_key
-
-load_dotenv()
+from ._oauth import get_http_client
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +84,7 @@ def get_place_info(query: str) -> str:
             "languageCode": "en"
         }
 
-        response = httpx.post(
+        response = get_http_client().post(
             PLACES_TEXT_SEARCH,
             headers=search_headers,
             json=search_body,
@@ -111,7 +107,7 @@ def get_place_info(query: str) -> str:
             "websiteUri,googleMapsUri,priceLevel,types"
         )
 
-        detail_response = httpx.get(
+        detail_response = get_http_client().get(
             f"{PLACES_DETAILS}/{place_id}",
             headers=detail_headers,
             timeout=15.0
@@ -238,16 +234,114 @@ def get_transit_info(origin: str, destination: str) -> str:
         return f"Error opening transit directions: {str(e)}"
 
 
+def get_transit_directions(origin: str, destination: str) -> str:
+    """
+    Get public transit directions with exact departure/arrival times.
+
+    Uses Google Directions API with mode=transit and departure_time=now.
+
+    Args:
+        origin: Starting address
+        destination: Destination address
+
+    Returns:
+        Formatted route text with step-by-step transit details,
+        or error message if no routes found.
+    """
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        return "Error: GOOGLE_MAPS_API_KEY not set"
+
+    try:
+        logger.info(f"[MAPS] Fetching transit directions: {origin} -> {destination}")
+
+        response = get_http_client().get(
+            "https://maps.googleapis.com/maps/api/directions/json",
+            params={
+                "origin": origin,
+                "destination": destination,
+                "mode": "transit",
+                "departure_time": "now",
+                "alternatives": "true",
+                "transit_mode": "bus|subway|rail",
+                "key": api_key,
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("status") != "OK":
+            status = data.get("status", "UNKNOWN")
+            logger.warning(f"[MAPS] Directions API status: {status}")
+            return f"No transit routes found ({status}). There may be no public transit service for this route."
+
+        routes = data.get("routes", [])
+        if not routes:
+            return "No transit routes found for this trip."
+
+        result_parts = []
+        for i, route in enumerate(routes, 1):
+            leg = route["legs"][0]  # Single origin-destination = 1 leg
+
+            depart_time = leg.get("departure_time", {}).get("text", "N/A")
+            arrive_time = leg.get("arrival_time", {}).get("text", "N/A")
+            duration = leg.get("duration", {}).get("text", "N/A")
+
+            route_header = f"Route {i}: {duration} (depart {depart_time}, arrive {arrive_time})"
+            steps_text = []
+
+            for step in leg.get("steps", []):
+                travel_mode = step.get("travel_mode", "")
+
+                if travel_mode == "TRANSIT":
+                    td = step.get("transit_details", {})
+                    line = td.get("line", {})
+                    vehicle_type = line.get("vehicle", {}).get("type", "TRANSIT")
+                    line_name = line.get("short_name") or line.get("name", "")
+                    agency = line.get("agencies", [{}])[0].get("name", "")
+
+                    dep_stop = td.get("departure_stop", {}).get("name", "")
+                    arr_stop = td.get("arrival_stop", {}).get("name", "")
+                    dep_time = td.get("departure_time", {}).get("text", "")
+                    arr_time = td.get("arrival_time", {}).get("text", "")
+                    num_stops = td.get("num_stops", 0)
+
+                    label = f"{vehicle_type} {line_name}".strip()
+                    if agency:
+                        label += f" ({agency})"
+
+                    steps_text.append(
+                        f"  Board {label} at {dep_stop} at {dep_time} -> "
+                        f"alight at {arr_stop} at {arr_time} ({num_stops} stops)"
+                    )
+
+                elif travel_mode == "WALKING":
+                    walk_dur = step.get("duration", {}).get("text", "")
+                    walk_dist = step.get("distance", {}).get("text", "")
+                    steps_text.append(f"  Walk {walk_dist} ({walk_dur})")
+
+            result_parts.append(route_header + "\n" + "\n".join(steps_text))
+
+        result = "\n\n".join(result_parts)
+        logger.info(f"[MAPS] Found {len(routes)} transit route(s)")
+        return result
+
+    except Exception as e:
+        logger.error(f"[MAPS] Transit directions error: {e}", exc_info=True)
+        return f"Error fetching transit directions: {str(e)}"
+
+
 # ============================================================================
 # Maps Agent - Tool-use specialist
 # ============================================================================
 
 def maps_agent(user_message: str) -> str:
     """
-    Specialized maps agent using Qwen for tool extraction.
+    Specialized maps agent using configurable tool model.
 
     Implements Plan-Act pattern (Reflect happens in root agent):
-    1. Plan: Qwen extracts function call from user's natural language request
+    1. Plan: Tool model extracts function call from user's natural language request
     2. Act: Execute the maps service function and return raw result
     3. (Reflect: Root agent with full history formats the response)
 
@@ -262,9 +356,8 @@ def maps_agent(user_message: str) -> str:
     try:
         logger.info(f"[MAPS] Maps agent invoked: {user_message[:50]}...")
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "maps_tools.json"
-        maps_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        maps_tools = load_tools("maps_tools")
 
         # Build system prompt
         system_prompt = """You are a maps and navigation specialist for Friday AI assistant.
@@ -295,10 +388,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         system_prompt += tools_text
 
         # Call tool model via OpenRouter (minimal context!)
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),
@@ -311,7 +401,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         )
 
         assistant_response = response.choices[0].message.content
-        logger.info(f"[MAPS] Qwen response: {assistant_response[:100]}...")
+        logger.info(f"[MAPS] Tool model response: {assistant_response[:100]}...")
 
         # Parse function call from response
         try:

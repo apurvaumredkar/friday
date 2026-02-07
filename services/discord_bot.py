@@ -1,12 +1,12 @@
 import os
-import uuid
 import asyncio
 import logging
+import functools
 import httpx
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from ai import Friday
+from ai import get_friday
 from services.voice import VoiceManager
 
 load_dotenv()
@@ -29,9 +29,10 @@ intents.guilds = True
 intents.voice_states = True
 
 bot = commands.Bot(command_prefix="$", intents=intents)
-friday = Friday()
+friday = get_friday()
 voice_manager = VoiceManager(friday)
 conversation_history = {}
+MAX_HISTORY_PER_CHANNEL = 50
 
 # Flag to track if speech models are ready for voice interactions
 speech_models_ready = False
@@ -82,14 +83,15 @@ async def on_message(message):
             logger.info(f"Initialized conversation history for channel {channel_id}")
 
         try:
-            # Download PDF from CDN URL
+            # Download PDF from CDN URL (async to avoid blocking event loop)
             pdf_attachment = pdf_attachments[0]
             pdf_url = pdf_attachment.url
             pdf_filename = pdf_attachment.filename
             logger.info(f"Downloading PDF from CDN: {pdf_url[:80]}...")
-            response = httpx.get(pdf_url)
-            response.raise_for_status()
-            pdf_bytes = response.content
+            async with httpx.AsyncClient() as client:
+                dl_response = await client.get(pdf_url)
+                dl_response.raise_for_status()
+                pdf_bytes = dl_response.content
 
             logger.info(f"Downloaded PDF: {pdf_filename}, size: {len(pdf_bytes)} bytes")
 
@@ -102,15 +104,18 @@ async def on_message(message):
             })
 
             logger.info(f"Invoking Friday orchestrator with PDF attachment")
-            result = friday.app.invoke({
-                "messages": conversation_history[channel_id],
-                "image_url": None,
-                "original_prompt": user_prompt,
-                "pdf_bytes": pdf_bytes,
-                "pdf_filename": pdf_filename
-            })
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, functools.partial(
+                friday.app.invoke, {
+                    "messages": conversation_history[channel_id],
+                    "image_url": None,
+                    "original_prompt": user_prompt,
+                    "pdf_bytes": pdf_bytes,
+                    "pdf_filename": pdf_filename
+                }
+            ))
 
-            conversation_history[channel_id] = result["messages"]
+            conversation_history[channel_id] = result["messages"][-MAX_HISTORY_PER_CHANNEL:]
             response = result["messages"][-1]["content"]
             logger.info(f"PDF processing response length: {len(response)} chars")
 
@@ -135,12 +140,15 @@ async def on_message(message):
 
     try:
         logger.info(f"Invoking Friday agent for channel {channel_id}")
-        result = friday.app.invoke({
-            "messages": conversation_history[channel_id],
-            "image_url": None,
-            "original_prompt": None
-        })
-        conversation_history[channel_id] = result["messages"]
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, functools.partial(
+            friday.app.invoke, {
+                "messages": conversation_history[channel_id],
+                "image_url": None,
+                "original_prompt": None
+            }
+        ))
+        conversation_history[channel_id] = result["messages"][-MAX_HISTORY_PER_CHANNEL:]
         response = result["messages"][-1]["content"]
         logger.info(f"Friday response length: {len(response)} chars")
 
@@ -152,29 +160,6 @@ async def on_message(message):
         await message.channel.send(f"Error: {str(e)}")
 
 
-@bot.command(name="clear")
-async def clear_history(ctx, limit: int = 100):
-    channel_id = ctx.channel.id
-    logger.info(f"Clear command invoked for channel {channel_id} with limit {limit}")
-
-    try:
-        if channel_id in conversation_history:
-            conversation_history[channel_id] = []
-            logger.info(f"Cleared conversation history for channel {channel_id}")
-
-        deleted = await ctx.channel.purge(limit=limit + 1)
-        logger.info(f"Purged {len(deleted)} messages from channel {channel_id}")
-
-        msg = await ctx.send(f"Cleared conversation history and deleted {len(deleted)} messages.")
-        await asyncio.sleep(5)
-        await msg.delete()
-
-    except discord.Forbidden:
-        logger.warning(f"Missing permissions to delete messages in channel {channel_id}")
-        await ctx.send("I don't have permission to delete messages in this channel.")
-    except Exception as e:
-        logger.error(f"Error clearing messages in channel {channel_id}: {e}")
-        await ctx.send(f"Error clearing messages: {str(e)}")
 
 
 @bot.command(name="join")
@@ -306,14 +291,14 @@ def _preload_speech_models():
     logger.info("Preloading speech models in parallel...")
     start = time.perf_counter()
 
-    # Load both models in parallel
+    # Load all models in parallel
     asr_thread = threading.Thread(target=_load_asr, name="ASR-Preload")
     tts_thread = threading.Thread(target=_load_tts, name="TTS-Preload")
 
     asr_thread.start()
     tts_thread.start()
 
-    # Wait for both to complete
+    # Wait for all to complete
     asr_thread.join()
     tts_thread.join()
 
@@ -338,6 +323,13 @@ async def on_ready():
 
     preload_thread = threading.Thread(target=preload_all_models, daemon=True)
     preload_thread.start()
+
+
+@bot.event
+async def on_close():
+    """Clean up voice sessions on bot shutdown."""
+    logger.info("Discord bot shutting down, cleaning up voice sessions...")
+    await voice_manager.cleanup_all()
 
 
 def start_discord_bot():

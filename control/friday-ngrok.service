@@ -1,0 +1,13 @@
+[Unit]
+Description=ngrok tunnel for Friday Control
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/snap/bin/ngrok http --url=lovella-flamy-rigorously.ngrok-free.dev 2400
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

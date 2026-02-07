@@ -6,11 +6,11 @@ import asyncio
 import re
 import base64
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from ai import Friday
+from ai import get_friday
 from ai.speech import ASREngine, TTSEngine
 from ai.speech.tts import clean_text_for_tts
 from typing import List, Dict, Optional
@@ -18,7 +18,7 @@ from typing import List, Dict, Optional
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Friday AI API")
-friday = Friday()
+friday = get_friday()
 
 # Mount static files for web interface
 STATIC_DIR = Path(__file__).parent / "static"
@@ -109,42 +109,6 @@ async def root():
 async def health():
     logger.info("Health check endpoint accessed")
     return {"status": "healthy"}
-
-
-@app.get("/logs")
-async def get_logs(lines: int = 100):
-    logger.info(f"Logs endpoint accessed, requesting {lines} lines")
-    try:
-        log_file = "friday.log"
-        if not os.path.exists(log_file):
-            logger.warning("Log file not found")
-            raise HTTPException(status_code=404, detail="Log file not found")
-
-        with open(log_file, 'r') as f:
-            all_lines = f.readlines()
-            last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-
-        return PlainTextResponse(''.join(last_lines))
-
-    except Exception as e:
-        logger.error(f"Error reading logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reading logs: {str(e)}")
-
-
-@app.get("/logs/download")
-async def download_logs():
-    logger.info("Log download endpoint accessed")
-    try:
-        log_file = "friday.log"
-        if not os.path.exists(log_file):
-            logger.warning("Log file not found for download")
-            raise HTTPException(status_code=404, detail="Log file not found")
-
-        return FileResponse(log_file, filename="friday.log", media_type="text/plain")
-
-    except Exception as e:
-        logger.error(f"Error downloading logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Error downloading logs: {str(e)}")
 
 
 def clean_response(content: str, is_first_message: bool) -> str:
@@ -326,47 +290,6 @@ async def toggle_feature(request: ToggleRequest):
         "feature": request.feature,
         "enabled": request.enabled
     }
-
-
-@app.websocket("/ws/logs")
-async def websocket_logs(websocket: WebSocket):
-    """Stream logs via WebSocket."""
-    await websocket.accept()
-    logger.info("WebSocket log stream connected")
-
-    try:
-        log_file = "friday.log"
-
-        # Send existing logs first
-        if os.path.exists(log_file):
-            with open(log_file, 'r') as f:
-                # Send last 100 lines
-                lines = f.readlines()
-                for line in lines[-100:]:
-                    await websocket.send_text(line.rstrip('\n'))
-
-        # Follow log file for new entries
-        with open(log_file, 'r') as f:
-            # Go to end of file
-            f.seek(0, 2)
-
-            while True:
-                line = f.readline()
-                if line:
-                    await websocket.send_text(line.rstrip('\n'))
-                else:
-                    # No new data, wait a bit
-                    await asyncio.sleep(0.5)
-
-    except WebSocketDisconnect:
-        logger.info("WebSocket log stream disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        try:
-            await websocket.close()
-        except:
-            pass
-
 
 
 # ============================================================================

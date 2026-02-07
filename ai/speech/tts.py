@@ -104,9 +104,11 @@ def clean_text_for_tts(text: str) -> str:
     # Convert line breaks to periods (creates natural pauses in speech)
     text = re.sub(r'\n+', '. ', text)
 
-    # Clean up multiple periods or spaces
-    text = re.sub(r'\.+', '.', text)              # multiple periods -> single
-    text = re.sub(r'\.\s*\.', '.', text)          # ". ." -> "."
+    # Clean up excessive periods and spaces (preserve ellipses for TTS prosody)
+    text = re.sub(r'\.{4,}', '...', text)         # 4+ periods -> ellipsis
+    text = text.replace('...', '\x00')             # protect ellipses
+    text = re.sub(r'\.[\s.]*\.', '.', text)        # collapse ". .", ".." etc.
+    text = text.replace('\x00', '...')             # restore ellipses
     text = re.sub(r'  +', ' ', text)              # multiple spaces
     text = text.strip()
 
@@ -201,7 +203,12 @@ class TTSEngine:
                     session = ort.InferenceSession(
                         str(MODEL_PATH),
                         sess_options,
-                        providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+                        providers=[
+                            ("CUDAExecutionProvider", {
+                                "cudnn_conv_algo_search": "DEFAULT",
+                            }),
+                            "CPUExecutionProvider",
+                        ]
                     )
 
                     # Verify CUDA is actually being used

@@ -3,7 +3,7 @@ Audio processing pipeline for voice integration.
 
 Handles:
 - Buffering incoming 20ms frames from Discord
-- Silence detection (energy-based with hangover)
+- Voice activity detection (energy-based RMS threshold)
 - Resampling from 48kHz stereo to 16kHz mono for ASR
 - Resampling from TTS output to 48kHz stereo for Discord
 """
@@ -39,8 +39,7 @@ class AudioBuffer:
     """
     Buffers incoming audio frames and detects end-of-speech.
 
-    Uses energy-based silence detection with:
-    - Configurable dB threshold
+    Uses energy-based RMS dB threshold for silence detection, with:
     - Hangover mechanism to allow natural pauses
     - Maximum duration limit to prevent runaway recordings
     - Packet gap detection for Discord VAD users

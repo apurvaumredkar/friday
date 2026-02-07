@@ -3,13 +3,11 @@
 import os
 import json
 import logging
-import httpx
-from pathlib import Path
-from openai import OpenAI
 from typing import Optional
 
-from ._oauth import get_access_token
-from ai.config import get_model, get_base_url, get_api_key
+from ._oauth import get_access_token, get_http_client
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +58,7 @@ def upload_file(
         f"Content-Type: {mime_type}\r\n\r\n"
     ).encode() + file_bytes + f"\r\n--{boundary}--".encode()
 
-    response = httpx.post(
+    response = get_http_client().post(
         "https://www.googleapis.com/upload/drive/v3/files",
         params={"uploadType": "multipart", "fields": "id,name,mimeType,webViewLink"},
         headers={
@@ -137,7 +135,7 @@ def list_files(
             query_parts.append(f"mimeType = '{mime_type}'")
         query = " and ".join(query_parts)
 
-    response = httpx.get(
+    response = get_http_client().get(
         "https://www.googleapis.com/drive/v3/files",
         params={
             "q": query,
@@ -182,7 +180,7 @@ def search_files(name: str, page_size: int = 10) -> list[dict]:
 
     logger.info(f"[DRIVE] Search query: {query}")
 
-    response = httpx.get(
+    response = get_http_client().get(
         "https://www.googleapis.com/drive/v3/files",
         params={
             "q": query,
@@ -208,7 +206,7 @@ def get_file_metadata(file_id: str) -> dict:
     """
     access_token = get_access_token()
 
-    response = httpx.get(
+    response = get_http_client().get(
         f"https://www.googleapis.com/drive/v3/files/{file_id}",
         params={"fields": "id,name,mimeType,size,createdTime,modifiedTime,webViewLink"},
         headers={"Authorization": f"Bearer {access_token}"},
@@ -230,7 +228,7 @@ def download_file(file_id: str) -> bytes:
     """
     access_token = get_access_token()
 
-    response = httpx.get(
+    response = get_http_client().get(
         f"https://www.googleapis.com/drive/v3/files/{file_id}",
         params={"alt": "media"},
         headers={"Authorization": f"Bearer {access_token}"},
@@ -252,7 +250,7 @@ def delete_file(file_id: str) -> bool:
     """
     access_token = get_access_token()
 
-    response = httpx.delete(
+    response = get_http_client().delete(
         f"https://www.googleapis.com/drive/v3/files/{file_id}",
         headers={"Authorization": f"Bearer {access_token}"},
     )
@@ -282,7 +280,7 @@ def create_folder(name: str, parent_folder_id: str | None = None) -> dict:
     if parent_folder_id:
         metadata["parents"] = [parent_folder_id]
 
-    response = httpx.post(
+    response = get_http_client().post(
         "https://www.googleapis.com/drive/v3/files",
         params={"fields": "id,name,mimeType"},
         headers={
@@ -305,10 +303,10 @@ def create_folder(name: str, parent_folder_id: str | None = None) -> dict:
 
 def drive_agent(user_message: str, file_bytes: bytes | None = None, folder_id_context: str | None = None) -> str:
     """
-    Specialized Google Drive agent using Qwen 2.5 VL 7B Instruct.
+    Specialized Google Drive agent using configurable tool model.
 
     Implements Plan-Act pattern (Reflect happens in root agent):
-    1. Plan: Qwen extracts function call from user's natural language request
+    1. Plan: Tool model extracts function call from user's natural language request
     2. Act: Execute the google_drive function and return raw result
     3. (Reflect: Root agent with full history formats the response)
 
@@ -329,9 +327,8 @@ def drive_agent(user_message: str, file_bytes: bytes | None = None, folder_id_co
     try:
         logger.info(f"[DRIVE] Drive agent invoked: {user_message[:50]}...")
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "drive_tools.json"
-        drive_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        drive_tools = load_tools("drive_tools")
 
         # Build system prompt
         system_prompt = """You are a Google Drive operations specialist for Friday AI assistant.
@@ -360,15 +357,12 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         if folder_id_context:
             system_prompt += f"\n\nCONTEXT: Default folder ID to use: {folder_id_context}"
 
-        # Format tools for Qwen
+        # Format tools as plain text in system prompt
         tools_text = "\n\nAvailable functions:\n" + json.dumps(drive_tools, indent=2)
         system_prompt += tools_text
 
         # Call tool model via OpenRouter
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),
@@ -382,7 +376,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         )
 
         assistant_response = response.choices[0].message.content
-        logger.info(f"[DRIVE] Qwen response: {assistant_response[:100]}...")
+        logger.info(f"[DRIVE] Tool model response: {assistant_response[:100]}...")
 
         # Parse function call
         try:

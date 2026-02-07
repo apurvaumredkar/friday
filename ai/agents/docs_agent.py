@@ -5,20 +5,13 @@ Phase 1: PDF support using pymupdf4llm
 Future: DOCX (python-docx), Google Docs (Docs API)
 """
 
-import os
 import re
 import json
 import logging
 import uuid
 from pathlib import Path
-from io import BytesIO
-from dotenv import load_dotenv
-from openai import OpenAI
-import pymupdf4llm
-from ai.config import get_model, get_base_url, get_api_key
-import pymupdf
-
-load_dotenv()
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +36,7 @@ def extract_pdf_text(pdf_path: str) -> str:
     Returns:
         Extracted text in markdown format
     """
+    import pymupdf4llm
     return pymupdf4llm.to_markdown(pdf_path)
 
 
@@ -65,6 +59,7 @@ def read_pdf(pdf_bytes: bytes) -> str:
 
         try:
             # Extract text as markdown
+            import pymupdf4llm
             text = pymupdf4llm.to_markdown(str(temp_path))
             logger.info(f"[DOCS] Extracted {len(text)} characters from PDF")
             return text
@@ -149,6 +144,7 @@ def get_pdf_info(pdf_bytes: bytes) -> str:
         logger.info(f"[DOCS] Getting PDF info, size: {len(pdf_bytes)} bytes")
 
         # Open PDF with pymupdf
+        import pymupdf
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
 
         # Basic metadata
@@ -224,7 +220,7 @@ def docs_agent(
             file_ext = Path(doc_filename).suffix.lower()
         else:
             # Try to detect from magic bytes
-            if pdf_bytes[:4] == b'%PDF':
+            if doc_bytes[:4] == b'%PDF':
                 file_ext = '.pdf'
             else:
                 file_ext = '.pdf'  # Default to PDF
@@ -235,9 +231,8 @@ def docs_agent(
         # Extract PDF content upfront for search operations
         pdf_text = read_pdf(doc_bytes)
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "docs_tools.json"
-        docs_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        docs_tools = load_tools("docs_tools")
 
         # Build system prompt
         system_prompt = """You are a document analysis specialist for Friday AI assistant.
@@ -268,10 +263,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         system_prompt += tools_text
 
         # Call tool model via OpenRouter
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),

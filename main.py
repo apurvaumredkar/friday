@@ -6,21 +6,29 @@ import logging
 import time
 import webbrowser
 import subprocess
+from pathlib import Path
 import uvicorn
 from services.discord_bot import start_discord_bot
+
+handlers = [logging.StreamHandler(sys.stdout)]
+if sys.stdout.isatty():
+    # Only add FileHandler when running directly from a terminal.
+    # When launched by the control server, stdout is already redirected to friday.log.
+    handlers.append(logging.FileHandler('friday.log'))
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('friday.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=handlers,
 )
 
 # Suppress noisy voice recv logs (rtcp packets, extra ws keys)
 logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)
 logging.getLogger("discord.ext.voice_recv.gateway").setLevel(logging.WARNING)
+
+# Suppress TTS/ONNX library warnings (CUDA fallback noise, performance warnings)
+logging.getLogger("kokoro_onnx").setLevel(logging.ERROR)
+logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
@@ -132,15 +140,14 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Start Docker services (Qdrant, Neo4j) before other services
-    ensure_docker_services()
-
     # Speech models are now preloaded in discord_bot.on_ready()
     api_thread = threading.Thread(target=run_api, daemon=True, name="API-Thread")
     discord_thread = threading.Thread(target=run_discord, daemon=True, name="Discord-Thread")
     browser_thread = threading.Thread(target=open_browser, daemon=True, name="Browser-Thread")
+    docker_thread = threading.Thread(target=ensure_docker_services, daemon=True, name="Docker-Thread")
 
     logger.info("Launching service threads")
+    docker_thread.start()
     api_thread.start()
     discord_thread.start()
     browser_thread.start()
@@ -151,6 +158,11 @@ async def main():
     logger.info("  - Web UI: Opening in browser...")
     logger.info("Press Ctrl+C to stop all services")
 
+    # Write PID file for control server process recovery
+    import os
+    PID_FILE = Path("friday.pid")
+    PID_FILE.write_text(str(os.getpid()))
+
     try:
         while not shutdown_event.is_set():
             await asyncio.sleep(1)
@@ -159,6 +171,7 @@ async def main():
     finally:
         logger.info("Initiating graceful shutdown")
         shutdown_event.set()
+        PID_FILE.unlink(missing_ok=True)
 
         logger.info("Waiting for threads to complete")
         api_thread.join(timeout=5)

@@ -15,7 +15,7 @@ Shared utilities:
 - _oauth: OAuth2 token management for Google Workspace agents
 """
 
-from .root_agent import root_agent, ROOT_SYSTEM_PROMPT_TEMPLATE
+from .root_agent import root_agent, root_agent_stream, ROOT_SYSTEM_PROMPT_TEMPLATE
 from .calendar_agent import calendar_agent
 from .sheets_agent import sheets_agent
 from .drive_agent import drive_agent
@@ -26,6 +26,7 @@ from ._oauth import get_access_token
 
 __all__ = [
     "root_agent",
+    "root_agent_stream",
     "calendar_agent",
     "sheets_agent",
     "drive_agent",

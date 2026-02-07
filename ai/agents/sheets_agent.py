@@ -3,13 +3,11 @@
 import os
 import json
 import logging
-import httpx
-from pathlib import Path
-from openai import OpenAI
 from typing import Optional
 
-from ._oauth import get_access_token
-from ai.config import get_model, get_base_url, get_api_key
+from ._oauth import get_access_token, get_http_client
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +38,9 @@ def get_next_row(sheet_id: str, access_token: str, sheet_name: str = "vaspian", 
     logger.info(f"Getting next row for sheet {sheet_id}, column {column}")
 
     url = f"{SHEETS_API_BASE}/spreadsheets/{sheet_id}/values/{sheet_name}!{column}:{column}"
-    response = httpx.get(
+    response = get_http_client().get(
         url,
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10.0,
     )
     response.raise_for_status()
     data = response.json()
@@ -88,7 +85,7 @@ def append_to_sheet(
     # Write to specific range starting at column B
     url = f"{SHEETS_API_BASE}/spreadsheets/{sheet_id}/values/{sheet_name}!{start_column}{next_row}:{end_column}{next_row}"
 
-    response = httpx.put(
+    response = get_http_client().put(
         url,
         params={"valueInputOption": "USER_ENTERED"},
         headers={
@@ -96,7 +93,6 @@ def append_to_sheet(
             "Content-Type": "application/json",
         },
         json={"values": [values]},
-        timeout=10.0,
     )
     response.raise_for_status()
 
@@ -129,11 +125,10 @@ def read_range(
     access_token = get_access_token()
 
     url = f"{SHEETS_API_BASE}/spreadsheets/{sheet_id}/values/{range_name}"
-    response = httpx.get(
+    response = get_http_client().get(
         url,
         params={"valueRenderOption": value_render_option},
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10.0,
     )
     response.raise_for_status()
 
@@ -169,7 +164,7 @@ def update_range(
     access_token = get_access_token()
 
     url = f"{SHEETS_API_BASE}/spreadsheets/{sheet_id}/values/{range_name}"
-    response = httpx.put(
+    response = get_http_client().put(
         url,
         params={"valueInputOption": value_input_option},
         headers={
@@ -177,7 +172,6 @@ def update_range(
             "Content-Type": "application/json",
         },
         json={"values": values},
-        timeout=10.0,
     )
     response.raise_for_status()
 
@@ -205,14 +199,13 @@ def clear_range(sheet_id: str, range_name: str) -> dict:
     access_token = get_access_token()
 
     url = f"{SHEETS_API_BASE}/spreadsheets/{sheet_id}/values/{range_name}:clear"
-    response = httpx.post(
+    response = get_http_client().post(
         url,
         headers={
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
         json={},
-        timeout=10.0,
     )
     response.raise_for_status()
 
@@ -260,10 +253,10 @@ def populate_paycheck_sheet(csv_row: str) -> str:
 
 def sheets_agent(user_message: str, sheet_id_context: str | None = None) -> str:
     """
-    Specialized Google Sheets agent using Qwen 2.5 VL 7B Instruct.
+    Specialized Google Sheets agent using configurable tool model.
 
     Implements Plan-Act pattern (Reflect happens in root agent):
-    1. Plan: Qwen extracts function call from user's natural language request
+    1. Plan: Tool model extracts function call from user's natural language request
     2. Act: Execute the google_sheets function and return raw result
     3. (Reflect: Root agent with full history formats the response)
 
@@ -283,9 +276,8 @@ def sheets_agent(user_message: str, sheet_id_context: str | None = None) -> str:
     try:
         logger.info(f"[SHEETS] Sheets agent invoked: {user_message[:50]}...")
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "sheets_tools.json"
-        sheets_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        sheets_tools = load_tools("sheets_tools")
 
         # Build system prompt
         system_prompt = """You are a Google Sheets operations specialist for Friday AI assistant.
@@ -315,15 +307,12 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         if sheet_id_context:
             system_prompt += f"\n\nCONTEXT: Default sheet ID to use: {sheet_id_context}"
 
-        # Format tools for Qwen
+        # Format tools as plain text in system prompt
         tools_text = "\n\nAvailable functions:\n" + json.dumps(sheets_tools, indent=2)
         system_prompt += tools_text
 
         # Call tool model via OpenRouter
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),
@@ -337,7 +326,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         )
 
         assistant_response = response.choices[0].message.content
-        logger.info(f"[SHEETS] Qwen response: {assistant_response[:100]}...")
+        logger.info(f"[SHEETS] Tool model response: {assistant_response[:100]}...")
 
         # Parse function call
         try:

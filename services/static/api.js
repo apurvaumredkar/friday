@@ -150,53 +150,6 @@ export class API {
   }
 
   /**
-   * Connect to logs WebSocket
-   * @param {Function} onMessage - Callback for log messages
-   * @param {Function} onError - Callback for errors
-   * @returns {WebSocket} - WebSocket connection
-   */
-  connectLogs(onMessage, onError) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/ws/logs`);
-
-    ws.onmessage = (event) => {
-      onMessage(event.data);
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      if (onError) onError(error);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-    };
-
-    return ws;
-  }
-
-  /**
-   * Get logs (REST endpoint fallback)
-   * @param {number} lines - Number of lines to fetch
-   * @returns {Promise<string>} - Log content
-   */
-  async getLogs(lines = 100) {
-    try {
-      const response = await fetch(`${this.baseURL}/logs?lines=${lines}`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch logs: ${response.statusText}`);
-      }
-
-      return await response.text();
-    } catch (error) {
-      console.error('Get logs error:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Health check
    * @returns {Promise<Object>} - Health status
    */

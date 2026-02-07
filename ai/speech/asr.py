@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Model configuration
 MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"  # English TDT model
 QUANTIZATION = "int8"  # Options: None, "int8", "fp16"
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "parakeet")
 
 SAMPLE_RATE = 16000
 
@@ -132,14 +133,44 @@ class ASREngine:
                 import onnx_asr
                 logger.info(f"  onnx-asr imported in {time.perf_counter() - t0:.1f}s")
 
-                # Load model (will download from HuggingFace on first run)
+                # Load model with GPU acceleration if available
+                import onnxruntime as ort
+
                 t1 = time.perf_counter()
-                logger.info(f"Loading Parakeet model: {MODEL_NAME} ({QUANTIZATION})")
+                local_path = MODEL_PATH if os.path.isdir(MODEL_PATH) else None
+                if local_path:
+                    logger.info(f"Loading Parakeet model from local path: {local_path} ({QUANTIZATION})")
+                else:
+                    logger.info(f"Loading Parakeet model from HuggingFace: {MODEL_NAME} ({QUANTIZATION})")
+
+                # Configure session options for optimal CPU performance
+                # Note: INT8-quantized model runs best on CPU — CUDA EP causes
+                # massive Conv op fallbacks and memory copies that hurt performance.
+                sess_options = ort.SessionOptions()
+                sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                sess_options.intra_op_num_threads = 4
+                sess_options.inter_op_num_threads = 1
+                sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                sess_options.enable_cpu_mem_arena = True
+
+                providers = ["CPUExecutionProvider"]
+                logger.info("ASR using CPU execution provider (INT8 optimized)")
+
                 self._model = onnx_asr.load_model(
                     MODEL_NAME,
+                    path=local_path,
                     quantization=QUANTIZATION,
+                    sess_options=sess_options,
+                    providers=providers,
                 )
                 logger.info(f"  Model loaded in {time.perf_counter() - t1:.1f}s")
+
+                # Warmup run to eliminate cold-start penalty (lazy kernel compilation, memory pool init)
+                logger.info("Running ASR warmup...")
+                t2 = time.perf_counter()
+                warmup_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1 second of silence
+                _ = self._model.recognize(warmup_audio, sample_rate=SAMPLE_RATE)
+                logger.info(f"  ASR warmup complete in {time.perf_counter() - t2:.1f}s")
 
                 self._loaded = True
                 logger.info(f"Parakeet ASR ready (total: {time.perf_counter() - t0:.1f}s)")

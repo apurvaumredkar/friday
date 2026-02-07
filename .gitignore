@@ -2,8 +2,11 @@
 .venv
 .claude
 services/google_workspace/google_auth.json
-__pycache__
+__pycache__/
 tmp/
 friday.log
+friday.pid
 ai/models/
+ai/context/USER_PROFILE.md
 data/
+.claude

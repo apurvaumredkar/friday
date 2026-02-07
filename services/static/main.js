@@ -5,7 +5,6 @@
 import { API } from './api.js';
 import { ChatUI } from './chat.js';
 import { VoiceRecorder } from './voice.js';
-import { LogStream } from './logs.js';
 import { FeatureToggles } from './toggles.js';
 
 // Initialize components
@@ -20,7 +19,6 @@ const chat = new ChatUI(document.getElementById('centerPanel'), api, voice);
 // Set chat UI reference in voice recorder
 voice.chatUI = chat;
 
-const logs = new LogStream(document.getElementById('logOutput'), api);
 
 // Feature toggle callbacks
 const featureCallbacks = {
@@ -60,17 +58,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error('Failed to load initial status:', error);
   }
-
-  // Load initial logs (REST fallback)
-  try {
-    await logs.loadInitialLogs();
-    console.log('Initial logs loaded');
-  } catch (error) {
-    console.error('Failed to load initial logs:', error);
-  }
-
-  // Start log streaming (WebSocket)
-  logs.connect();
 
   // Setup event listeners
   setupEventListeners();
@@ -127,17 +114,11 @@ async function updateStatusIndicator() {
   }
 }
 
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-  logs.disconnect();
-});
-
 // Expose to global scope for debugging
 window.friday = {
   api,
   chat,
   voice,
-  logs,
   toggles
 };
 

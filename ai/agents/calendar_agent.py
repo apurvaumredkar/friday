@@ -5,18 +5,14 @@ This module combines the calendar agent logic (Plan-Act pattern)
 and Google Calendar API operations (create, list, update, delete events).
 """
 
-import os
 import json
 import logging
-import httpx
 import pytz
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
-from openai import OpenAI
-
-from ._oauth import get_access_token
-from ai.config import get_model, get_base_url, get_api_key
+from ._oauth import get_access_token, get_http_client
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +73,7 @@ def create_event(
     if attendees:
         event_body["attendees"] = [{"email": email} for email in attendees]
 
-    response = httpx.post(
+    response = get_http_client().post(
         f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
         headers={"Authorization": f"Bearer {access_token}"},
         json=event_body,
@@ -124,7 +120,7 @@ def list_events(
     time_min = start_dt.isoformat()
     time_max = end_dt.isoformat()
 
-    response = httpx.get(
+    response = get_http_client().get(
         f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
         headers={"Authorization": f"Bearer {access_token}"},
         params={
@@ -161,7 +157,7 @@ def get_event(event_id: str, calendar_id: str = "primary") -> dict:
     logger.info(f"Getting event details: {event_id}")
     access_token = get_access_token()
 
-    response = httpx.get(
+    response = get_http_client().get(
         f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=10.0,
@@ -209,7 +205,7 @@ def update_event(
     # Merge updates with current event
     current_event.update(updates)
 
-    response = httpx.put(
+    response = get_http_client().put(
         f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
         headers={"Authorization": f"Bearer {access_token}"},
         json=current_event,
@@ -237,7 +233,7 @@ def delete_event(event_id: str, calendar_id: str = "primary") -> bool:
     logger.info(f"Deleting event: {event_id}")
     access_token = get_access_token()
 
-    response = httpx.delete(
+    response = get_http_client().delete(
         f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=10.0,
@@ -291,7 +287,7 @@ def check_availability(
     time_max = end_dt.isoformat()
 
     # Use freebusy query
-    response = httpx.post(
+    response = get_http_client().post(
         f"{CALENDAR_API_BASE}/freeBusy",
         headers={"Authorization": f"Bearer {access_token}"},
         json={
@@ -407,15 +403,15 @@ def find_free_slots(
 
 
 # ============================================================================
-# Calendar Agent - Tool-use specialist with PAR loop (Qwen 2.5 VL)
+# Calendar Agent - Tool-use specialist with PAR loop
 # ============================================================================
 
 def calendar_agent(user_message: str) -> str:
     """
-    Specialized calendar agent using Qwen 2.5 VL 7B Instruct.
+    Specialized calendar agent using configurable tool model.
 
     Implements Plan-Act pattern (Reflect happens in root agent):
-    1. Plan: Qwen extracts function call from user's natural language request
+    1. Plan: Tool model extracts function call from user's natural language request
     2. Act: Execute the calendar function and return raw result
     3. (Reflect: Root agent with full history formats the response)
 
@@ -434,23 +430,26 @@ def calendar_agent(user_message: str) -> str:
     try:
         logger.info(f"Calendar agent invoked: {user_message[:50]}...")
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "calendar_tools.json"
-        calendar_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        calendar_tools = load_tools("calendar_tools")
 
-        # Build system prompt with current date
-        current_date = datetime.now().strftime("%Y-%m-%d")
+        # Build system prompt with full temporal context
+        now = datetime.now()
+        current_date = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%H:%M")
+        current_day = now.strftime("%A")
         system_prompt = f"""You are a calendar operations specialist for Friday AI assistant.
 
 Your ONLY task is to translate user's natural language requests into precise calendar function calls.
 
 RULES:
-1. Always use today's date as reference: {current_date}
+1. Current date/time reference: {current_day}, {current_date} at {current_time}
 2. Convert relative dates ("tomorrow", "next week") to YYYY-MM-DD format
-3. Convert times to 24-hour HH:MM format (e.g., "2pm" → "14:00")
-4. Default duration is 60 minutes if not specified
-5. For update/delete operations, user must provide event_id (prompt them to list events first)
-6. Call exactly ONE function per request
+3. Convert relative times ("in an hour", "this afternoon") using current time as reference
+4. Convert times to 24-hour HH:MM format (e.g., "2pm" → "14:00")
+5. Default duration is 60 minutes if not specified
+6. For update/delete operations, user must provide event_id (prompt them to list events first)
+7. Call exactly ONE function per request
 
 OUTPUT FORMAT:
 You MUST respond with ONLY a JSON object in this exact format:
@@ -464,15 +463,12 @@ You MUST respond with ONLY a JSON object in this exact format:
 
 Do not include any explanatory text, markdown, or additional content. Only output the JSON object."""
 
-        # Format tools for Qwen (as plain text in system prompt)
+        # Format tools as plain text in system prompt
         tools_text = "\n\nAvailable functions:\n" + json.dumps(calendar_tools, indent=2)
         system_prompt += tools_text
 
         # Call tool model via OpenRouter (minimal context!)
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),
@@ -486,9 +482,9 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         )
 
         assistant_response = response.choices[0].message.content
-        logger.info(f"Qwen response: {assistant_response[:100]}...")
+        logger.info(f"Tool model response: {assistant_response[:100]}...")
 
-        # Parse function call from response (Qwen returns JSON in text)
+        # Parse function call from response (tool model returns JSON in text)
         # Look for JSON function call in the response
         try:
             # Try to extract JSON from response
@@ -503,7 +499,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
 
                 logger.info(f"Extracted function call: {function_name}({function_args})")
             else:
-                # No function call, return Qwen's text response
+                # No function call, return text response
                 return assistant_response
         except json.JSONDecodeError:
             # If we can't parse JSON, return the text response
@@ -552,14 +548,12 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
             else:
                 logger.info(f"[CALENDAR] Found {len(events)} events")
                 events_summary = []
-                entity_refs = []
                 for event in events:
                     title = event.get("summary", "Untitled")
                     start = event.get("start", {}).get("dateTime", "")
                     event_id = event.get("id", "")
-                    # Log event ID but don't include in user-facing result
-                    logger.debug(f"[CALENDAR]   - {title} at {start} (ID: {event_id})")
-                    events_summary.append(f"- {title} at {start}")
+                    logger.info(f"[CALENDAR]   - {title} at {start} (ID: {event_id})")
+                    events_summary.append(f"- {title} at {start} (ID: {event_id})")
                 tool_result = f"Found {len(events)} events:\n" + "\n".join(events_summary)
 
         elif function_name == "check_availability":
@@ -589,9 +583,24 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
             field = function_args["field"]
             new_value = function_args["new_value"]
 
+            # Check for placeholder/fabricated event IDs
+            is_placeholder = (
+                len(event_id) < 15 or
+                event_id.isdigit() or
+                event_id.lower() in ("event_id_value", "event_id", "id", "unknown", "none", "null")
+            )
+            if is_placeholder:
+                logger.info(f"[CALENDAR] Event ID '{event_id}' looks like a placeholder")
+                return "I need the actual event ID to update it. Please list your events first with 'what's on my calendar' to get the event details."
+
             logger.info(f"[CALENDAR] Updating event {event_id}: {field} -> {new_value}")
 
-            updates = {field: new_value}
+            # Wrap start/end in Google Calendar API format (requires dateTime object, not bare string)
+            if field in ("start", "end"):
+                updates = {field: {"dateTime": new_value, "timeZone": "America/New_York"}}
+            else:
+                updates = {field: new_value}
+
             updated_event = update_event(event_id, updates)
 
             logger.info(f"[CALENDAR] Event updated successfully")

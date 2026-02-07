@@ -17,9 +17,16 @@ class AgentState(TypedDict):
 
 
 class Friday:
+    # Registry mapping handler names (from skill frontmatter) to method names
+    SKILL_HANDLERS = {
+        "work_transit": "_execute_work_transit_skill",
+        "paycheck": "_execute_paycheck_skill",
+        "drive_fetch": "_execute_drive_fetch_skill",
+    }
+
     def __init__(self):
-        # Load skills (triggers registration)
-        import ai.skills
+        # Load context (triggers skill discovery)
+        import ai.context
 
         self.builder = StateGraph(AgentState)
         self.builder.add_node("root", self.root_node)
@@ -90,37 +97,31 @@ class Friday:
         """
         Generic skill execution node.
 
-        Detects which skill to execute based on message content and state,
-        then follows the workflow defined in the skill's markdown guide.
+        Detects which skill to execute based on auto-discovered registry,
+        dispatches to registered Python handler or generic LLM-based execution.
         """
         try:
-            from ai.skills import detect_skill, load_skill
+            from ai.context_loader import detect_skill, load_skill, get_skill_metadata
 
             last_content = state["messages"][-1]["content"]
 
-            # Detect which skill to use
+            # Detect which skill to use (checks registry)
             skill_name = detect_skill(last_content, state)
             if not skill_name:
                 error_msg = {"role": "system", "content": "[SKILL ERROR] No skill detected"}
                 return {"messages": [error_msg], "tool_result": "Error: No skill detected"}
 
             logger.info(f"[SKILL] Executing: {skill_name}")
+            metadata = get_skill_metadata(skill_name)
 
-            # Load skill markdown (for logging/future use)
-            skill_content = load_skill(skill_name)
-            if skill_content:
-                logger.debug(f"[SKILL] Loaded guide: {len(skill_content)} chars")
+            # Check for registered Python handler
+            handler_name = metadata.get("handler") if metadata else None
+            if handler_name and handler_name in self.SKILL_HANDLERS:
+                handler_method = getattr(self, self.SKILL_HANDLERS[handler_name])
+                return handler_method(state)
 
-            # Execute skill workflow
-            # For now, dispatch to specific handlers
-            # TODO: Make this more dynamic by parsing markdown
-            if skill_name == "PROCESS_PAYCHECK":
-                return self._execute_paycheck_skill(state)
-            elif skill_name == "DRIVE_FETCH":
-                return self._execute_drive_fetch_skill(state)
-            else:
-                error_msg = {"role": "system", "content": f"[SKILL ERROR] Unknown skill: {skill_name}"}
-                return {"messages": [error_msg], "tool_result": f"Error: Unknown skill {skill_name}"}
+            # Generic execution: inject skill content as LLM context
+            return self._execute_generic_skill(state, skill_name, metadata)
 
         except Exception as e:
             logger.error(f"[SKILL] Execution error: {e}", exc_info=True)
@@ -257,6 +258,99 @@ Paycheck text:
             error_msg = {"role": "system", "content": f"[TOOL ERROR - Drive Fetch] {str(e)}"}
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
+    def _execute_work_transit_skill(self, state: AgentState):
+        """Execute work/home transit skill — fetch public transit routes via Directions API."""
+        try:
+            from ai.context_loader import load_prompt
+            from ai.agents.maps_agent import get_transit_directions
+
+            # Parse addresses from user profile
+            profile = load_prompt("USER_PROFILE")
+            home_address = None
+            work_address = None
+            for line in profile.strip().splitlines():
+                if line.startswith("Home Address:"):
+                    home_address = line.split(":", 1)[1].strip()
+                elif line.startswith("Work Address:"):
+                    work_address = line.split(":", 1)[1].strip()
+
+            if not home_address or not work_address:
+                error = "Home Address or Work Address not found in USER_PROFILE.md"
+                return {
+                    "messages": [{"role": "system", "content": f"[SKILL ERROR] {error}"}],
+                    "tool_result": f"Error: {error}",
+                }
+
+            # Determine direction from user message
+            last_content = state["messages"][-1]["content"]
+            message_lower = last_content.lower()
+
+            # "to home" / "get home" / "back home" → work → home
+            going_home = any(kw in message_lower for kw in ["to home", "get home", "back home", "from work"])
+
+            if going_home:
+                origin, destination = work_address, home_address
+                direction_label = "work → home"
+            else:
+                origin, destination = home_address, work_address
+                direction_label = "home → work"
+
+            logger.info(f"[SKILL:TRANSIT] Fetching transit: {direction_label}")
+
+            tool_result = get_transit_directions(origin, destination)
+            tool_result = f"Transit routes ({direction_label}):\n\n{tool_result}"
+
+            logger.info(f"[SKILL:TRANSIT] Result: {tool_result[:100]}...")
+
+            tool_message = {
+                "role": "system",
+                "content": f"[TOOL RESULT - Work/Home Transit]\n{tool_result}",
+            }
+            return {"messages": [tool_message], "tool_result": tool_result}
+
+        except Exception as e:
+            logger.error(f"[SKILL:TRANSIT] Error: {e}", exc_info=True)
+            error_msg = {"role": "system", "content": f"[TOOL ERROR - Transit] {str(e)}"}
+            return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
+
+    def _execute_generic_skill(self, state: AgentState, skill_name: str, metadata: dict | None):
+        """
+        Execute a skill without a dedicated Python handler.
+
+        Passes the skill content and user message to root agent for LLM-based execution.
+        Used for simple skills that don't need API calls.
+        """
+        try:
+            from ai.context_loader import load_skill
+
+            skill_content = load_skill(skill_name)
+            if not skill_content:
+                error_msg = {"role": "system", "content": f"[SKILL ERROR] Could not load skill: {skill_name}"}
+                return {"messages": [error_msg], "tool_result": f"Error: Skill not found: {skill_name}"}
+
+            last_content = state["messages"][-1]["content"]
+            trigger = metadata.get("trigger", "") if metadata else ""
+            request = last_content.split(f"{trigger}:", 1)[-1].strip() if trigger else last_content
+            result_label = metadata.get("result_label", skill_name) if metadata else skill_name
+
+            logger.info(f"[SKILL] Generic execution for {skill_name}: {request[:50]}...")
+
+            response = root_agent([
+                {"role": "system", "content": f"Follow these skill instructions:\n\n{skill_content}"},
+                {"role": "user", "content": request}
+            ])
+
+            tool_message = {
+                "role": "system",
+                "content": f"[TOOL RESULT - {result_label}]\n{response}"
+            }
+            return {"messages": [tool_message], "tool_result": response}
+
+        except Exception as e:
+            logger.error(f"[SKILL] Generic execution error: {e}", exc_info=True)
+            error_msg = {"role": "system", "content": f"[SKILL ERROR] {str(e)}"}
+            return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
+
     def calendar_node(self, state: AgentState):
         """Handle calendar operations and pass result back to root."""
         try:
@@ -387,8 +481,8 @@ Paycheck text:
         if state.get("tool_result"):
             return END
 
-        # Check for skill handlers (orchestrator-driven detection)
-        from ai.skills import detect_skill
+        # Check for skill handlers (auto-discovered from ai/context/skills/)
+        from ai.context_loader import detect_skill
         skill_name = detect_skill(last_msg, state)
         if skill_name:
             logger.info(f"[ROUTING] Detected skill: {skill_name}")

@@ -7,8 +7,10 @@ No code changes required.
 import os
 import json
 from pathlib import Path
+from openai import OpenAI
 
 _config = None
+_client = None
 
 
 def get_config():
@@ -47,3 +49,11 @@ def get_api_key() -> str:
     """Get API key for the active provider from environment."""
     env_var = _get_provider_config()["api_key_env"]
     return os.getenv(env_var, "")
+
+
+def get_client() -> OpenAI:
+    """Get shared OpenAI client singleton for the active provider."""
+    global _client
+    if _client is None:
+        _client = OpenAI(base_url=get_base_url(), api_key=get_api_key())
+    return _client

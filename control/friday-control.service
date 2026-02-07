@@ -1,0 +1,14 @@
+[Unit]
+Description=Friday Control Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/mnt/d/friday/.venv/bin/python /mnt/d/friday/control/server.py
+WorkingDirectory=/mnt/d/friday
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

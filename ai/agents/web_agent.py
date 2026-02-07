@@ -9,14 +9,8 @@ import os
 import json
 import logging
 import webbrowser
-from pathlib import Path
-from dotenv import load_dotenv
-from openai import OpenAI
-from google import genai
-from google.genai import types
-from ai.config import get_model, get_base_url, get_api_key
-
-load_dotenv()
+from ai.config import get_model, get_client
+from ai.context_loader import load_tools
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +31,8 @@ def search_web(query: str) -> str:
     try:
         logger.info(f"[WEB] Searching web: {query}")
 
+        from google import genai
+        from google.genai import types
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
         # Enable Google Search tool
@@ -71,16 +67,34 @@ def open_in_browser(url: str) -> str:
     """
     import subprocess
     import platform
+    from pathlib import Path
+    from urllib.parse import urlparse
 
     try:
+        # Validate URL scheme to prevent command injection
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return f"Error: Invalid URL scheme '{parsed.scheme}' — only http/https allowed"
+
         logger.info(f"[WEB] Opening in browser: {url}")
 
         # Check if running in WSL
         is_wsl = "microsoft" in platform.uname().release.lower()
 
         if is_wsl:
-            # Use PowerShell Start-Process to open URL in default browser
-            subprocess.run(["powershell.exe", "-Command", f'Start-Process "{url}"'])
+            # Use full path — systemd services don't have WSL interop on PATH
+            powershell = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+            if not powershell.exists():
+                logger.error("[WEB] powershell.exe not found at expected path")
+                return f"Error: powershell.exe not found — cannot open browser on WSL"
+            result = subprocess.run(
+                [str(powershell), "Start-Process", url],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode != 0:
+                stderr = result.stderr.decode(errors="replace").strip()
+                logger.error(f"[WEB] PowerShell failed (rc={result.returncode}): {stderr}")
+                return f"Error: Failed to open browser: {stderr}"
         else:
             webbrowser.open(url)
 
@@ -92,10 +106,10 @@ def open_in_browser(url: str) -> str:
 
 def web_agent(user_message: str) -> str:
     """
-    Specialized web agent using Qwen 2.5 VL 7B Instruct.
+    Specialized web agent using configurable tool model.
 
     Implements Plan-Act pattern (Reflect happens in root agent):
-    1. Plan: Qwen extracts function call from user's natural language request
+    1. Plan: Tool model extracts function call from user's natural language request
     2. Act: Execute the web service function and return raw result
     3. (Reflect: Root agent with full history formats the response)
 
@@ -113,9 +127,8 @@ def web_agent(user_message: str) -> str:
     try:
         logger.info(f"[WEB] Web agent invoked: {user_message[:50]}...")
 
-        # Load tool definitions
-        tools_file = Path(__file__).parent.parent / "skills" / "web_tools.json"
-        web_tools = json.loads(tools_file.read_text())
+        # Load tool definitions (cached)
+        web_tools = load_tools("web_tools")
 
         # Build system prompt
         system_prompt = """You are a web operations specialist for Friday AI assistant.
@@ -140,15 +153,12 @@ You MUST respond with ONLY a JSON object in this exact format:
 
 Do not include any explanatory text, markdown, or additional content. Only output the JSON object."""
 
-        # Format tools for Qwen (as plain text in system prompt)
+        # Format tools as plain text in system prompt
         tools_text = "\n\nAvailable functions:\n" + json.dumps(web_tools, indent=2)
         system_prompt += tools_text
 
         # Call tool model via OpenRouter (minimal context!)
-        client = OpenAI(
-            base_url=get_base_url(),
-            api_key=get_api_key()
-        )
+        client = get_client()
 
         response = client.chat.completions.create(
             model=get_model("tool"),
@@ -162,7 +172,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         )
 
         assistant_response = response.choices[0].message.content
-        logger.info(f"[WEB] Qwen response: {assistant_response[:100]}...")
+        logger.info(f"[WEB] Tool model response: {assistant_response[:100]}...")
 
         # Parse function call from response
         try:
@@ -177,7 +187,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
 
                 logger.info(f"[WEB] Extracted function call: {function_name}({function_args})")
             else:
-                # No function call, return Qwen's text response
+                # No function call, return text response
                 return assistant_response
         except json.JSONDecodeError:
             # If we can't parse JSON, return the text response
