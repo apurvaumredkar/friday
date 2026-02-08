@@ -108,7 +108,6 @@ async def on_message(message):
             result = await loop.run_in_executor(None, functools.partial(
                 friday.app.invoke, {
                     "messages": conversation_history[channel_id],
-                    "image_url": None,
                     "original_prompt": user_prompt,
                     "pdf_bytes": pdf_bytes,
                     "pdf_filename": pdf_filename
@@ -144,7 +143,6 @@ async def on_message(message):
         result = await loop.run_in_executor(None, functools.partial(
             friday.app.invoke, {
                 "messages": conversation_history[channel_id],
-                "image_url": None,
                 "original_prompt": None
             }
         ))

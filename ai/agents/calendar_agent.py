@@ -485,24 +485,26 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
         logger.info(f"Tool model response: {assistant_response[:100]}...")
 
         # Parse function call from response (tool model returns JSON in text)
-        # Look for JSON function call in the response
+        # Models may output chain-of-thought before JSON — find the LAST valid JSON block
+        function_name = None
+        function_args = {}
         try:
-            # Try to extract JSON from response
-            if "{" in assistant_response and "}" in assistant_response:
-                start_idx = assistant_response.find("{")
-                end_idx = assistant_response.rfind("}") + 1
-                function_call_json = assistant_response[start_idx:end_idx]
-                function_call = json.loads(function_call_json)
-
-                function_name = function_call.get("name")
-                function_args = function_call.get("arguments", {})
-
-                logger.info(f"Extracted function call: {function_name}({function_args})")
-            else:
-                # No function call, return text response
+            # Look for the last JSON block starting with {"name" (skips CoT text)
+            for marker in ['{"name"', '{\n  "name"', '{\n    "name"']:
+                start_idx = assistant_response.rfind(marker)
+                if start_idx >= 0:
+                    end_idx = assistant_response.rfind("}") + 1
+                    candidate = assistant_response[start_idx:end_idx]
+                    function_call = json.loads(candidate)
+                    function_name = function_call.get("name")
+                    function_args = function_call.get("arguments", {})
+                    logger.info(f"Extracted function call: {function_name}({function_args})")
+                    break
+            if not function_name:
+                logger.warning(f"[CALENDAR] No valid function call found in response")
                 return assistant_response
         except json.JSONDecodeError:
-            # If we can't parse JSON, return the text response
+            logger.warning(f"[CALENDAR] JSON parse failed, returning raw response")
             return assistant_response
 
         # Execute the appropriate calendar function and get raw result
@@ -522,6 +524,12 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
             end_dt = start_dt + timedelta(minutes=duration_min)
             end_time = end_dt.isoformat()
 
+            # Check if the event is being created in the past
+            past_date_warning = ""
+            if start_dt < datetime.now():
+                logger.info(f"[CALENDAR] Event start time {start_time} is in the past")
+                past_date_warning = "Note: This event was created in the past (before current date/time).\n"
+
             event = create_event(
                 title=title,
                 start_time=start_time,
@@ -532,7 +540,7 @@ Do not include any explanatory text, markdown, or additional content. Only outpu
             event_id = event.get('id')
             logger.info(f"[CALENDAR] Event created: ID={event_id}, Link={event.get('htmlLink')}")
 
-            tool_result = f"Event created successfully: '{title}' on {date} at {time} for {duration_min} minutes."
+            tool_result = f"{past_date_warning}Event created successfully: '{title}' on {date} at {time} for {duration_min} minutes."
 
         elif function_name == "list_events":
             start_date = function_args["start_date"]

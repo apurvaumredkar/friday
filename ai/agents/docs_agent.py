@@ -24,22 +24,6 @@ TMP_DIR.mkdir(exist_ok=True)
 # PDF Service Functions
 # ============================================================================
 
-def extract_pdf_text(pdf_path: str) -> str:
-    """
-    Extract text from PDF file path using pymupdf4llm.
-
-    This is the core PDF extraction function used by other services.
-
-    Args:
-        pdf_path: Path to PDF file
-
-    Returns:
-        Extracted text in markdown format
-    """
-    import pymupdf4llm
-    return pymupdf4llm.to_markdown(pdf_path)
-
-
 def read_pdf(pdf_bytes: bytes) -> str:
     """
     Extract text content from PDF using pymupdf4llm.

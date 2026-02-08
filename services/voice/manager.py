@@ -25,7 +25,7 @@ from discord.ext.voice_recv.router import PacketRouter
 import discord
 
 from ai import Friday
-from ai.agents.root_agent import root_agent_stream
+from ai.agents.root_agent import root_agent_stream, TOOL_CALL_SENTINEL
 
 
 # Monkey-patch PacketRouter._do_run to survive corrupted opus packets.
@@ -71,11 +71,6 @@ MIN_SENTENCE_CHARS = 20
 # Lower threshold for first sentence to reduce time-to-first-audio
 MIN_FIRST_SENTENCE_CHARS = 10
 
-# Routing prefixes that require LangGraph batch processing (not conversational)
-ROUTING_PREFIXES = ("SEARCH:", "WEB:", "CALENDAR:", "MAPS:", "DOCS:", "PAYCHECK_PROCESSING:", "DRIVE_FETCH:")
-
-# How many chars to accumulate before checking for routing prefix
-PREFIX_DETECTION_CHARS = 30
 
 @dataclass
 class VoiceSession:
@@ -306,20 +301,16 @@ class VoiceManager:
                 if not session:
                     break
 
-                # Skip if not listening or already processing
-                if not session.listening or session.processing:
+                if not session.listening:
                     continue
 
-                # Check for packet gap
                 complete_audio = session.audio_buffer.check_packet_gap()
 
-                if complete_audio and session.processing_lock.acquire(blocking=False):
-                    try:
+                if complete_audio:
+                    with session.processing_lock:
                         if session.processing:
                             continue
                         session.processing = True
-                    finally:
-                        session.processing_lock.release()
 
                     audio_duration_ms = len(complete_audio) / (48000 * 2 * 2) * 1000
                     logger.info(f"Packet gap triggered speech! Duration: {audio_duration_ms:.0f}ms")
@@ -343,24 +334,18 @@ class VoiceManager:
         Schedules async processing on the event loop.
         """
         session = self.sessions.get(guild_id)
-
         if not session:
             return
-
-        # Skip if not listening or already processing
-        if not session.listening or session.processing:
+        if not session.listening:
             return
 
-        # Add frame to buffer, check if speech complete
         complete_audio = session.audio_buffer.add_frame(pcm_data)
 
-        if complete_audio and session.processing_lock.acquire(blocking=False):
-            try:
+        if complete_audio:
+            with session.processing_lock:
                 if session.processing:
                     return
                 session.processing = True
-            finally:
-                session.processing_lock.release()
             # Schedule async processing on the main event loop (thread-safe)
             if self._event_loop is not None:
                 audio_duration_ms = len(complete_audio) / (48000 * 2 * 2) * 1000  # 48kHz, stereo, 16-bit
@@ -370,150 +355,12 @@ class VoiceManager:
                     self._event_loop
                 )
 
-    async def _process_speech(self, guild_id: int, audio_bytes: bytes):
-        """
-        Process completed speech through ASR -> Friday -> TTS pipeline.
-
-        Args:
-            guild_id: The guild this speech came from
-            audio_bytes: Raw PCM audio bytes (Discord format)
-        """
-        session = self.sessions.get(guild_id)
-
-        if not session:
-            logger.warning(f"No session found for guild {guild_id}, skipping speech processing")
-            return
-
-        if not session.voice_client.is_connected():
-            logger.warning("Voice client not connected, skipping speech processing")
-            return
-
-        session.processing = True
-        logger.info(f"Starting speech processing pipeline for guild {guild_id}")
-
-        try:
-            # Get event loop for running blocking operations in dedicated executors
-            loop = asyncio.get_running_loop()
-
-            # 1. Resample audio for ASR (run in ASR executor to avoid blocking)
-            logger.info("Resampling audio for ASR...")
-            audio_for_asr = await loop.run_in_executor(
-                self._asr_executor, resample_discord_to_asr, audio_bytes
-            )
-
-            # 2. Transcribe with ASR (run in ASR executor - Parakeet TDT)
-            logger.info("Transcribing audio with Parakeet TDT...")
-            text = await loop.run_in_executor(
-                self._asr_executor, self._get_asr().transcribe, audio_for_asr
-            )
-
-            if not text or text.strip() == "":
-                logger.info("Empty transcription, ignoring")
-                return
-
-            logger.info(f"Transcribed: {text}")
-
-            # Send transcription to text channel
-            await session.text_channel.send(f"**You said:** {text}")
-
-            # 3. Process through Friday (run in LLM executor to avoid blocking)
-            logger.info("Processing through Friday...")
-            session.conversation_history.append({"role": "user", "content": f"[VOICE] {text}"})
-
-            def invoke_friday():
-                return self.friday.app.invoke(
-                    {
-                        "messages": session.conversation_history,
-                        "image_url": None,
-                        "original_prompt": None,
-                    }
-                )
-
-            result = await loop.run_in_executor(self._llm_executor, invoke_friday)
-
-            session.conversation_history = result["messages"][-MAX_VOICE_HISTORY:]
-            response_text = result["messages"][-1]["content"]
-
-            logger.info(f"Friday response: {response_text[:100]}...")
-
-            # Send text response
-            if len(response_text) > 2000:
-                chunks = [
-                    response_text[i : i + 2000]
-                    for i in range(0, len(response_text), 2000)
-                ]
-                for chunk in chunks:
-                    await session.text_channel.send(chunk)
-            else:
-                await session.text_channel.send(response_text)
-
-            # 4. Clean and prepare text for TTS
-            tts_text = clean_text_for_tts(response_text)
-            if len(tts_text) > MAX_TTS_CHARS:
-                tts_text = tts_text[:MAX_TTS_CHARS] + "..."
-                logger.info(f"Truncated TTS text to {MAX_TTS_CHARS} chars")
-
-            # 5. Synthesize TTS (run in TTS executor to avoid blocking event loop)
-            logger.info(f"Synthesizing TTS response ({len(tts_text)} chars)...")
-            samples, sample_rate = await loop.run_in_executor(
-                self._tts_executor, self._get_tts().synthesize, tts_text
-            )
-
-            # 5. Play audio response - check if still connected
-            if not session.voice_client.is_connected():
-                logger.warning("Voice client disconnected before TTS playback, skipping audio")
-                return
-
-            logger.info("Playing TTS audio...")
-            audio_source = create_tts_source(samples, sample_rate)
-
-            # Wait for any current playback to finish
-            while session.voice_client.is_connected() and session.voice_client.is_playing():
-                await asyncio.sleep(0.1)
-
-            # Final check before playing
-            if not session.voice_client.is_connected():
-                logger.warning("Voice client disconnected while waiting, skipping audio")
-                return
-
-            # Pause listening during playback to avoid opus decode errors from own audio
-            session.listening = False
-            logger.info("Paused listening during TTS playback")
-
-            def on_playback_complete(error):
-                if error:
-                    logger.error(f"Playback error: {error}")
-                # Re-enable listening after playback
-                current_session = self.sessions.get(guild_id)
-                if current_session:
-                    current_session.listening = True
-                    logger.info("Resumed listening after TTS playback")
-
-            # Play the response
-            session.voice_client.play(audio_source, after=on_playback_complete)
-
-        except Exception as e:
-            logger.error(f"Error processing speech: {e}")
-            # Only try to send to text channel if it's a real error, not a disconnect
-            if "not connected" not in str(e).lower():
-                try:
-                    await session.text_channel.send(f"Error processing speech: {e}")
-                except Exception:
-                    pass  # Channel may also be unavailable
-
-        finally:
-            # Session may have been removed during processing
-            current_session = self.sessions.get(guild_id)
-            if current_session:
-                current_session.processing = False
-            logger.info(f"Speech processing pipeline complete for guild {guild_id}")
-
     async def _process_speech_streaming(self, guild_id: int, audio_bytes: bytes):
         """
         Process speech through ASR -> streaming LLM -> streaming TTS pipeline.
 
-        Falls back to batch LangGraph invoke if a routing prefix is detected
-        (e.g., SEARCH:, CALENDAR:), since those need the full agent graph.
+        Falls back to batch LangGraph invoke if a tool call is detected
+        (TOOL_CALL_SENTINEL), since tool calls need the full agent graph.
         """
         session = self.sessions.get(guild_id)
         if not session:
@@ -607,39 +454,27 @@ class VoiceManager:
 
         llm_future = loop.run_in_executor(self._llm_executor, stream_tokens)
 
-        # Phase 1: Prefix detection — accumulate first tokens to check for routing
-        accumulated = ""
-        prefix_detected = False
-        stream_ended_in_phase1 = False  # True if None sentinel consumed here
+        # Phase 1: Check first token for tool call sentinel
+        # If the model returns a tool call, root_agent_stream yields TOOL_CALL_SENTINEL
+        # instead of content tokens — fall back to batch LangGraph invoke
+        first_token = await token_queue.get()
 
-        while len(accumulated) < PREFIX_DETECTION_CHARS:
-            token = await token_queue.get()
-            if token is None:
-                stream_ended_in_phase1 = True
-                break
-            accumulated += token
+        if first_token is None:
+            logger.info("[STREAMING] Empty response from LLM")
+            return "", False
 
-            # Check for routing prefix
-            for prefix in ROUTING_PREFIXES:
-                if accumulated.strip().startswith(prefix):
-                    prefix_detected = True
-                    break
-            if prefix_detected:
-                break
-
-        if prefix_detected:
-            logger.info(f"[STREAMING] Routing prefix detected: {accumulated[:50]}... Falling back to batch")
+        if first_token == TOOL_CALL_SENTINEL:
+            logger.info("[STREAMING] Tool call detected, falling back to batch LangGraph invoke")
             # Drain remaining stream tokens
             while True:
                 token = await token_queue.get()
                 if token is None:
                     break
 
-            # Fall back to full LangGraph invoke
+            # Fall back to full LangGraph invoke (includes tool execution)
             def invoke_friday():
                 return self.friday.app.invoke({
                     "messages": session.conversation_history,
-                    "image_url": None,
                     "original_prompt": None,
                 })
 
@@ -652,20 +487,9 @@ class VoiceManager:
             await self._batch_tts_and_play(guild_id, session, response_text)
             return response_text, True
 
-        # Handle stream ending during prefix detection (response < 30 chars)
-        # The None sentinel was already consumed in Phase 1 — Phase 2 would deadlock
-        if not accumulated or accumulated.isspace():
-            logger.info("[STREAMING] Empty response from LLM")
-            return "", False
-
-        if stream_ended_in_phase1:
-            # Short response (< 30 chars) — synthesize directly, skip streaming pipeline
-            logger.info(f"[STREAMING] Short response ({len(accumulated)} chars), using batch TTS: {accumulated[:60]}...")
-            await self._batch_tts_and_play(guild_id, session, accumulated)
-            return accumulated, False
-
-        # Phase 2: Streaming TTS — no routing prefix, proceed with sentence-by-sentence
-        logger.info("[STREAMING] No routing prefix, starting streaming TTS pipeline")
+        # Phase 2: Streaming TTS — direct text response, sentence-by-sentence
+        accumulated = first_token
+        logger.info("[STREAMING] Text response, starting streaming TTS pipeline")
         streaming_source = StreamingTTSSource()
         sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
         full_response = accumulated

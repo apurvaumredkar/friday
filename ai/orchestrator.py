@@ -1,11 +1,27 @@
 from typing import TypedDict, Annotated
 import operator
+import re
 import logging
 from langgraph.graph import StateGraph, START, END
 from ai.agents import root_agent, web_agent, calendar_agent, sheets_agent, drive_agent, maps_agent, docs_agent
 from ai.agents.drive_agent import search_files
 
 logger = logging.getLogger(__name__)
+
+# Pattern to strip chain-of-thought reasoning from model output
+# Matches text like "Okay, so the user is asking..." or "<think>...</think>" before the actual response
+_COT_PATTERNS = [
+    re.compile(r"^<think>.*?</think>\s*", re.DOTALL),  # <think>...</think> blocks
+    re.compile(r"^(?:Okay|Ok|Alright|So|Let me|Hmm),?\s+(?:so\s+)?(?:the user|Apurva|I need to|let me|I'll|looking at).*?\n", re.IGNORECASE),  # Reasoning preamble
+]
+
+
+def _strip_cot(text: str) -> str:
+    """Strip chain-of-thought reasoning from model output."""
+    cleaned = text
+    for pattern in _COT_PATTERNS:
+        cleaned = pattern.sub("", cleaned)
+    return cleaned.strip()
 
 
 class AgentState(TypedDict):
@@ -14,12 +30,22 @@ class AgentState(TypedDict):
     pdf_bytes: bytes | None
     pdf_filename: str | None
     tool_result: str | None  # For passing tool execution results back to root
+    pending_tool_call: dict | None  # Structured tool call from root: {name, arguments}
+
+
+# Routing map: tool_call function name -> graph node name
+TOOL_ROUTING = {
+    "web_search": "web",
+    "open_url": "web",
+    "calendar": "calendar",
+    "maps": "maps",
+    "docs": "docs",
+}
 
 
 class Friday:
     # Registry mapping handler names (from skill frontmatter) to method names
     SKILL_HANDLERS = {
-        "work_transit": "_execute_work_transit_skill",
         "paycheck": "_execute_paycheck_skill",
         "drive_fetch": "_execute_drive_fetch_skill",
     }
@@ -45,37 +71,72 @@ class Friday:
         self.builder.add_edge("docs", "root")  # Docs operations return to root for reflection
         self.app = self.builder.compile()
 
+    def invoke_paycheck(self, pdf_bytes: bytes, pdf_filename: str) -> dict:
+        """Directly invoke paycheck processing, bypassing root agent routing.
+
+        This ensures the paycheck skill always executes regardless of which
+        model the root agent uses for routing decisions.
+        """
+        state = {
+            "messages": [{"role": "user", "content": "Process this paycheck"}],
+            "original_prompt": "Process this paycheck",
+            "pdf_bytes": pdf_bytes,
+            "pdf_filename": pdf_filename,
+            "tool_result": None,
+            "pending_tool_call": {"name": "skill_process_paycheck", "arguments": {"request": "Process this paycheck"}},
+        }
+
+        # Execute paycheck skill directly
+        skill_result = self._execute_paycheck_skill(state)
+
+        # Run reflection pass to format the result
+        messages = state["messages"] + skill_result["messages"]
+        response = root_agent(messages, use_tools=False)
+        content = _strip_cot(response["content"])
+        messages.append({"role": "assistant", "content": content})
+
+        return {"messages": messages}
 
     def root_node(self, state: AgentState):
         try:
-            response = root_agent(state["messages"])
-            new_message = {"role": "assistant", "content": response}
+            # Reflection pass: tool_result is set (even if empty string) → format results, don't offer tools
+            is_reflection = state.get("tool_result") is not None
+            response = root_agent(state["messages"], use_tools=not is_reflection)
 
-            # Check if we just processed a tool result
-            # If so, clear the tool_result field to enable next operation
-            if state.get("tool_result"):
-                logger.info("Clearing tool_result after root processed tool output")
-                return {"messages": [new_message], "tool_result": None}
+            # Strip chain-of-thought leakage from model output
+            content = _strip_cot(response["content"])
+            new_message = {"role": "assistant", "content": content}
 
-            return {"messages": [new_message]}
+            if is_reflection:
+                logger.info("Reflection pass: formatted tool result into response")
+                return {"messages": [new_message], "tool_result": None, "pending_tool_call": None}
+
+            # First pass: check for tool call routing
+            tool_calls = response.get("tool_calls", [])
+            tool_call = tool_calls[0] if tool_calls else None
+            if tool_call:
+                logger.info(f"[ROUTING] Tool call detected: {tool_call['name']}({tool_call['arguments']})")
+                if len(tool_calls) > 1:
+                    logger.info(f"[ROUTING] {len(tool_calls) - 1} additional tool call(s) ignored (single-tool-per-turn)")
+
+            return {"messages": [new_message], "pending_tool_call": tool_call}
         except Exception as e:
             error_msg = {"role": "assistant", "content": f"Error: {str(e)}"}
-            return {"messages": [error_msg]}
+            return {"messages": [error_msg], "pending_tool_call": None}
 
     def web_node(self, state: AgentState):
-        """Handle web operations (search, URL) and pass result back to root."""
+        """Handle web operations (search, URL) using structured tool call args."""
         try:
-            last_content = state["messages"][-1]["content"]
+            tool_call = state.get("pending_tool_call", {})
+            name = tool_call.get("name", "")
+            args = tool_call.get("arguments", {})
 
-            # Extract command after prefix
-            if last_content.startswith("SEARCH:"):
-                command = last_content.replace("SEARCH:", "").strip()
-            elif last_content.startswith("WEB:"):
-                command = last_content.replace("WEB:", "").strip()
+            if name == "open_url":
+                command = args.get("url", "")
+                logger.info(f"[WEB] Opening URL: {command[:50]}...")
             else:
-                return {"messages": [{"role": "system", "content": "[ERROR] No WEB/SEARCH prefix"}]}
-
-            logger.info(f"[WEB] Processing: {command[:50]}...")
+                command = args.get("query", "")
+                logger.info(f"[WEB] Searching: {command[:50]}...")
 
             # Execute web operation
             tool_result = web_agent(command)
@@ -97,30 +158,42 @@ class Friday:
         """
         Generic skill execution node.
 
-        Detects which skill to execute based on auto-discovered registry,
+        Detects which skill to execute based on tool_call name (skill_*),
         dispatches to registered Python handler or generic LLM-based execution.
         """
         try:
-            from ai.context_loader import detect_skill, load_skill, get_skill_metadata
+            from ai.context_loader import load_skill, get_skill_metadata
 
-            last_content = state["messages"][-1]["content"]
+            tool_call = state.get("pending_tool_call", {})
+            tool_name = tool_call.get("name", "")
+            args = tool_call.get("arguments", {})
 
-            # Detect which skill to use (checks registry)
-            skill_name = detect_skill(last_content, state)
-            if not skill_name:
-                error_msg = {"role": "system", "content": "[SKILL ERROR] No skill detected"}
-                return {"messages": [error_msg], "tool_result": "Error: No skill detected"}
+            # Extract skill name from tool call (e.g., "skill_process_paycheck" -> "PROCESS_PAYCHECK")
+            skill_name_lower = tool_name.replace("skill_", "", 1)
 
+            # Find matching skill in registry
+            from ai.context_loader import _SKILL_REGISTRY
+            matched_skill = None
+            for trigger, info in _SKILL_REGISTRY.items():
+                if info["name"].lower() == skill_name_lower:
+                    matched_skill = info
+                    break
+
+            if not matched_skill:
+                error_msg = {"role": "system", "content": f"[SKILL ERROR] Unknown skill: {tool_name}"}
+                return {"messages": [error_msg], "tool_result": f"Error: Unknown skill: {tool_name}"}
+
+            skill_name = matched_skill["name"]
             logger.info(f"[SKILL] Executing: {skill_name}")
-            metadata = get_skill_metadata(skill_name)
 
             # Check for registered Python handler
-            handler_name = metadata.get("handler") if metadata else None
+            handler_name = matched_skill.get("handler")
             if handler_name and handler_name in self.SKILL_HANDLERS:
                 handler_method = getattr(self, self.SKILL_HANDLERS[handler_name])
                 return handler_method(state)
 
             # Generic execution: inject skill content as LLM context
+            metadata = get_skill_metadata(skill_name)
             return self._execute_generic_skill(state, skill_name, metadata)
 
         except Exception as e:
@@ -153,7 +226,7 @@ class Friday:
             logger.info(f"[SKILL:PAYCHECK] PDF extracted: {len(pdf_text)} chars")
 
             # Step 2: Parse paycheck data from extracted text
-            # Use root_agent to parse the paycheck into CSV format
+            # Use root_agent to parse the paycheck into CSV format (text-only, no tools needed)
             logger.info(f"[SKILL:PAYCHECK] Step 2/3: Parsing paycheck data...")
             parse_prompt = f"""Parse this paycheck and extract as CSV with these columns:
 Pay Period,Gross Pay,Social Security,Medicare,Federal Income Tax,NY Income Tax,NY PFL,NY Disability,Total Deductions,Net Pay,Hours
@@ -168,7 +241,8 @@ Respond with ONLY the CSV data row (no headers, no explanation).
 Paycheck text:
 {pdf_text[:8000]}"""  # Limit text length
 
-            csv_response = root_agent([{"role": "user", "content": parse_prompt}])
+            csv_result = root_agent([{"role": "user", "content": parse_prompt}])
+            csv_response = csv_result["content"]
 
             # Extract CSV values from response
             csv_line = csv_response.strip().split("\n")[-1]  # Last line is the data
@@ -177,7 +251,10 @@ Paycheck text:
 
             # Step 3: Use sheets_agent to append row to paycheck sheet
             logger.info(f"[SKILL:PAYCHECK] Step 3/3: Updating Google Sheet via sheets_agent...")
-            sheets_request = f"Append this paycheck data to the sheet: {', '.join(values)}"
+            sheets_request = (
+                f"Append this row to sheet PAYCHECK_SHEET_ID, "
+                f"tab name 'vaspian', starting at column B: {', '.join(values)}"
+            )
             sheet_response = sheets_agent(sheets_request, sheet_id_context="PAYCHECK_SHEET_ID")
             logger.info(f"[SKILL:PAYCHECK] Sheet updated: {sheet_response[:50]}...")
 
@@ -216,10 +293,8 @@ Paycheck text:
     def _execute_drive_fetch_skill(self, state: AgentState):
         """Execute drive fetch workflow as defined in drive_fetch.md"""
         try:
-            last_content = state["messages"][-1]["content"]
-
-            # Extract search term from "DRIVE_FETCH: <search term>"
-            search_term = last_content.split("DRIVE_FETCH:")[-1].strip()
+            tool_call = state.get("pending_tool_call", {})
+            search_term = tool_call.get("arguments", {}).get("request", "")
 
             logger.info(f"[SKILL:DRIVE_FETCH] Searching for: {search_term}")
 
@@ -258,61 +333,6 @@ Paycheck text:
             error_msg = {"role": "system", "content": f"[TOOL ERROR - Drive Fetch] {str(e)}"}
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
-    def _execute_work_transit_skill(self, state: AgentState):
-        """Execute work/home transit skill — fetch public transit routes via Directions API."""
-        try:
-            from ai.context_loader import load_prompt
-            from ai.agents.maps_agent import get_transit_directions
-
-            # Parse addresses from user profile
-            profile = load_prompt("USER_PROFILE")
-            home_address = None
-            work_address = None
-            for line in profile.strip().splitlines():
-                if line.startswith("Home Address:"):
-                    home_address = line.split(":", 1)[1].strip()
-                elif line.startswith("Work Address:"):
-                    work_address = line.split(":", 1)[1].strip()
-
-            if not home_address or not work_address:
-                error = "Home Address or Work Address not found in USER_PROFILE.md"
-                return {
-                    "messages": [{"role": "system", "content": f"[SKILL ERROR] {error}"}],
-                    "tool_result": f"Error: {error}",
-                }
-
-            # Determine direction from user message
-            last_content = state["messages"][-1]["content"]
-            message_lower = last_content.lower()
-
-            # "to home" / "get home" / "back home" → work → home
-            going_home = any(kw in message_lower for kw in ["to home", "get home", "back home", "from work"])
-
-            if going_home:
-                origin, destination = work_address, home_address
-                direction_label = "work → home"
-            else:
-                origin, destination = home_address, work_address
-                direction_label = "home → work"
-
-            logger.info(f"[SKILL:TRANSIT] Fetching transit: {direction_label}")
-
-            tool_result = get_transit_directions(origin, destination)
-            tool_result = f"Transit routes ({direction_label}):\n\n{tool_result}"
-
-            logger.info(f"[SKILL:TRANSIT] Result: {tool_result[:100]}...")
-
-            tool_message = {
-                "role": "system",
-                "content": f"[TOOL RESULT - Work/Home Transit]\n{tool_result}",
-            }
-            return {"messages": [tool_message], "tool_result": tool_result}
-
-        except Exception as e:
-            logger.error(f"[SKILL:TRANSIT] Error: {e}", exc_info=True)
-            error_msg = {"role": "system", "content": f"[TOOL ERROR - Transit] {str(e)}"}
-            return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
-
     def _execute_generic_skill(self, state: AgentState, skill_name: str, metadata: dict | None):
         """
         Execute a skill without a dedicated Python handler.
@@ -328,17 +348,17 @@ Paycheck text:
                 error_msg = {"role": "system", "content": f"[SKILL ERROR] Could not load skill: {skill_name}"}
                 return {"messages": [error_msg], "tool_result": f"Error: Skill not found: {skill_name}"}
 
-            last_content = state["messages"][-1]["content"]
-            trigger = metadata.get("trigger", "") if metadata else ""
-            request = last_content.split(f"{trigger}:", 1)[-1].strip() if trigger else last_content
+            tool_call = state.get("pending_tool_call", {})
+            request = tool_call.get("arguments", {}).get("request", "")
             result_label = metadata.get("result_label", skill_name) if metadata else skill_name
 
             logger.info(f"[SKILL] Generic execution for {skill_name}: {request[:50]}...")
 
-            response = root_agent([
+            result = root_agent([
                 {"role": "system", "content": f"Follow these skill instructions:\n\n{skill_content}"},
                 {"role": "user", "content": request}
             ])
+            response = result["content"]
 
             tool_message = {
                 "role": "system",
@@ -352,19 +372,12 @@ Paycheck text:
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
     def calendar_node(self, state: AgentState):
-        """Handle calendar operations and pass result back to root."""
+        """Handle calendar operations using structured tool call args."""
         try:
-            last_content = state["messages"][-1]["content"]
-            # Extract command after "CALENDAR:" prefix
-            # Check for multiple CALENDAR: prefixes
-            if last_content.count("CALENDAR:") > 1:
-                logger.warning(f"Multiple CALENDAR: prefixes detected, using first occurrence")
+            tool_call = state.get("pending_tool_call", {})
+            command = tool_call.get("arguments", {}).get("request", "")
 
-            # Use first occurrence after prefix (not last)
-            parts = last_content.split("CALENDAR:", 1)
-            if len(parts) < 2:
-                return {"messages": [{"role": "assistant", "content": "❌ Missing CALENDAR: prefix"}]}
-            command = parts[1].strip()
+            logger.info(f"[CALENDAR] Processing: {command[:50]}...")
 
             # Execute calendar operation and get raw result
             tool_result = calendar_agent(command)
@@ -382,15 +395,10 @@ Paycheck text:
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
     def maps_node(self, state: AgentState):
-        """Handle maps operations (places, directions, transit)."""
+        """Handle maps operations (places, directions, transit) using structured tool call args."""
         try:
-            last_content = state["messages"][-1]["content"]
-
-            # Extract command after "MAPS:" prefix
-            parts = last_content.split("MAPS:", 1)
-            if len(parts) < 2:
-                return {"messages": [{"role": "system", "content": "[ERROR] Missing MAPS: prefix"}]}
-            command = parts[1].strip()
+            tool_call = state.get("pending_tool_call", {})
+            command = tool_call.get("arguments", {}).get("request", "")
 
             logger.info(f"[MAPS] Processing: {command[:50]}...")
 
@@ -421,15 +429,10 @@ Paycheck text:
             return {"messages": [error_msg], "tool_result": f"Error: {str(e)}"}
 
     def docs_node(self, state: AgentState):
-        """Handle document operations (PDF read, search, info) and pass result back to root."""
+        """Handle document operations (PDF read, search, info) using structured tool call args."""
         try:
-            last_content = state["messages"][-1]["content"]
-
-            # Extract command after "DOCS:" prefix
-            parts = last_content.split("DOCS:", 1)
-            if len(parts) < 2:
-                return {"messages": [{"role": "system", "content": "[ERROR] Missing DOCS: prefix"}]}
-            command = parts[1].strip()
+            tool_call = state.get("pending_tool_call", {})
+            command = tool_call.get("arguments", {}).get("request", "")
 
             logger.info(f"[DOCS] Processing: {command[:50]}...")
 
@@ -471,38 +474,32 @@ Paycheck text:
         return "root"
 
     def should_continue(self, state: AgentState):
-        """Route from root agent to specialized nodes or skills."""
+        """Route from root agent based on structured tool calls."""
         if not state.get("messages"):
             return END
 
-        last_msg = state["messages"][-1]["content"]
-
         # Check if we just processed a tool result (prevent loops)
-        if state.get("tool_result"):
+        # Use 'is not None' so even empty string results trigger END
+        if state.get("tool_result") is not None:
             return END
 
-        # Check for skill handlers (auto-discovered from ai/context/skills/)
-        from ai.context_loader import detect_skill
-        skill_name = detect_skill(last_msg, state)
-        if skill_name:
-            logger.info(f"[ROUTING] Detected skill: {skill_name}")
+        # Check for pending tool call from root agent
+        tool_call = state.get("pending_tool_call")
+        if not tool_call:
+            return END  # Direct text response, no routing needed
+
+        name = tool_call.get("name", "")
+
+        # Route to agent nodes
+        if name in TOOL_ROUTING:
+            target = TOOL_ROUTING[name]
+            logger.info(f"[ROUTING] Tool call '{name}' -> {target}")
+            return target
+
+        # Route to skill node for skill_* tool calls
+        if name.startswith("skill_"):
+            logger.info(f"[ROUTING] Tool call '{name}' -> skill")
             return "skill"
 
-        # Web operations (search, URL)
-        if last_msg.startswith("SEARCH:") or last_msg.startswith("WEB:"):
-            return "web"
-
-        # Calendar operations
-        if "CALENDAR:" in last_msg:
-            return "calendar"
-
-        # Maps operations (places, directions, transit)
-        if "MAPS:" in last_msg:
-            return "maps"
-
-        # Document operations (PDF read, search, info)
-        if "DOCS:" in last_msg:
-            return "docs"
-
+        logger.warning(f"[ROUTING] Unknown tool call: {name}, ending")
         return END
-

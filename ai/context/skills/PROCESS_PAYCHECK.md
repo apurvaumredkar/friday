@@ -50,7 +50,7 @@ From the PDF text content provided by the user, extract the following 11 fields 
 ### Step 2: Google Sheets Update
 The orchestrator routes to `sheets_agent`:
 - Appends CSV row to spreadsheet at `PAYCHECK_SHEET_ID`
-- Default sheet name: "Sheet1", starting at column A
+- Sheet tab name: "vaspian", starting at column B
 
 ### Step 3: Google Drive Upload
 The orchestrator routes to `drive_agent`:

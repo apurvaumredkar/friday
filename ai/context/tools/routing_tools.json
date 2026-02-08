@@ -1,0 +1,87 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "web_search",
+      "description": "Search the web for current information, news, or real-time data.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query"
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "open_url",
+      "description": "Open a URL in the user's browser.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to open"
+          }
+        },
+        "required": ["url"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "calendar",
+      "description": "Manage calendar events: create, list, check availability, delete.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "The calendar operation in natural language"
+          }
+        },
+        "required": ["request"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "maps",
+      "description": "Get place info, directions, or transit routes. Defaults to public transit for directions unless user specifies driving/walking/cycling.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "The maps/navigation request in natural language"
+          }
+        },
+        "required": ["request"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "docs",
+      "description": "Read, search, or get info about uploaded PDF documents.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "The document operation request"
+          }
+        },
+        "required": ["request"]
+      }
+    }
+  }
+]

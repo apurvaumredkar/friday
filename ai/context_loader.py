@@ -192,37 +192,6 @@ def discover_skills():
     logger.info(f"Discovered {len(_SKILL_REGISTRY)} skill(s)")
 
 
-def detect_skill(message: str, state: dict) -> Optional[str]:
-    """
-    Detect which skill should be activated based on message content.
-
-    Checks the message for registered trigger prefixes from auto-discovered skills.
-
-    Args:
-        message: Last message content from root agent
-        state: Current agent state (unused, kept for compatibility)
-
-    Returns:
-        Skill name (filename stem) or None
-    """
-    for trigger, info in _SKILL_REGISTRY.items():
-        if f"{trigger}:" in message:
-            return info["name"]
-    return None
-
-
-def get_skill_routing() -> str:
-    """
-    Build combined routing text from all discovered skills.
-
-    Returns concatenated ## Routing sections for injection into the system prompt.
-    """
-    sections = []
-    for info in _SKILL_REGISTRY.values():
-        if info["routing"]:
-            sections.append(info["routing"].strip())
-    return "\n\n".join(sections)
-
 
 def get_skill_tool_results() -> str:
     """
@@ -252,6 +221,7 @@ def get_skill_metadata(skill_name: str) -> Optional[dict]:
         if info["name"] == skill_name:
             return {"trigger": trigger, **info}
     return None
+
 
 
 def clear_cache():

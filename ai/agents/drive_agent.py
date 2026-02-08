@@ -75,38 +75,6 @@ def upload_file(
     return result
 
 
-def upload_to_google_drive(pdf_bytes: bytes, filename: str) -> str:
-    """
-    Upload a PDF file to Google Drive (paycheck folder).
-
-    This is a convenience wrapper for paycheck processing that uses
-    the PAYCHECK_FOLDER_ID from environment variables.
-
-    Args:
-        pdf_bytes: The PDF file content as bytes
-        filename: The filename to use in Google Drive
-
-    Returns:
-        Success message with file ID
-
-    Raises:
-        ValueError: If PAYCHECK_FOLDER_ID is not set
-        httpx.HTTPStatusError: If upload fails
-    """
-    folder_id = os.getenv("PAYCHECK_FOLDER_ID")
-    if not folder_id:
-        raise ValueError("PAYCHECK_FOLDER_ID not set in environment")
-
-    result = upload_file(
-        file_bytes=pdf_bytes,
-        filename=filename,
-        mime_type="application/pdf",
-        folder_id=folder_id,
-    )
-
-    return f"Uploaded {filename} to Google Drive"
-
-
 def list_files(
     folder_id: str | None = None,
     mime_type: str | None = None,

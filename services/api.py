@@ -1,12 +1,9 @@
 import logging
 import os
-import uuid
 import io
 import asyncio
-import re
-import base64
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -184,14 +181,9 @@ async def process_paycheck(file: UploadFile = File(...)):
         pdf_filename = file.filename
         logger.info(f"Received PDF: {pdf_filename}, size: {len(pdf_bytes)} bytes")
 
-        # Pass to orchestrator - skill will handle extraction via docs_agent
-        logger.info("Invoking Friday orchestrator with paycheck PDF")
-        result = friday.app.invoke({
-            "messages": [{"role": "user", "content": "Process this paycheck"}],
-            "original_prompt": "Process this paycheck",
-            "pdf_bytes": pdf_bytes,
-            "pdf_filename": pdf_filename
-        })
+        # Invoke paycheck skill directly (bypasses root agent routing for reliability)
+        logger.info("Invoking paycheck skill directly")
+        result = friday.invoke_paycheck(pdf_bytes, pdf_filename)
 
         logger.info(f"Paycheck processing complete, response messages: {len(result['messages'])}")
         return {"messages": result["messages"]}

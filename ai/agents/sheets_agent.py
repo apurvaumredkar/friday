@@ -213,40 +213,6 @@ def clear_range(sheet_id: str, range_name: str) -> dict:
     return response.json()
 
 
-def populate_paycheck_sheet(csv_row: str) -> str:
-    """
-    Parse CSV row and append to the paycheck Google Sheet.
-
-    This is a convenience function for paycheck processing that uses
-    the PAYCHECK_SHEET_ID from environment variables.
-
-    Args:
-        csv_row: CSV string with paycheck data (Year excluded, starts from Pay Period)
-            Format: Pay Period,Gross Pay,Social Security,Medicare,
-                    Federal Income Tax,NY Income Tax,NY PFL,NY Disability,
-                    Total Deductions,Net Pay,Hours
-
-    Returns:
-        Success message with pay period and net pay
-
-    Raises:
-        ValueError: If PAYCHECK_SHEET_ID is not set
-        httpx.HTTPStatusError: If API request fails
-    """
-    logger.info(f"Populating paycheck sheet with: {csv_row[:50]}...")
-
-    values = [v.strip() for v in csv_row.strip().split(",")]
-    sheet_id = os.getenv("PAYCHECK_SHEET_ID")
-
-    if not sheet_id:
-        raise ValueError("PAYCHECK_SHEET_ID not set in environment")
-
-    result = append_to_sheet(sheet_id, values)
-    logger.info(f"Sheet updated: {result.get('updates', {}).get('updatedRows', 0)} row(s)")
-
-    return f"Added paycheck entry: {values[0]} - Net Pay: ${values[9]}"
-
-
 # ============================================================================
 # Sheets Agent
 # ============================================================================

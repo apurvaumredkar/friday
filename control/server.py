@@ -290,11 +290,9 @@ def edit_original(interaction_token: str, content: str):
         logger.error(f"Failed to edit original: {e}")
 
 
-def run_and_followup(handler, interaction_token: str, progress_msg: str | None = None):
-    """Execute a slow command in a background thread and edit the deferred response."""
+def run_and_followup(handler, interaction_token: str):
+    """Execute a slow command in a background thread and edit the original response with the result."""
     try:
-        if progress_msg:
-            edit_original(interaction_token, progress_msg)
         result = handler()
         edit_original(interaction_token, result)
     except Exception as e:
@@ -507,10 +505,13 @@ async def discord_interactions(request: Request):
             channel_id = data.get("channel_id", "")
             threading.Thread(
                 target=run_and_followup,
-                args=(lambda: clear_channel(channel_id), interaction_token, PROGRESS_MESSAGES.get("clear")),
+                args=(lambda: clear_channel(channel_id), interaction_token),
                 daemon=True,
             ).start()
-            return {"type": 5}
+            return {
+                "type": 4,
+                "data": {"content": PROGRESS_MESSAGES.get("clear", "Working...")},
+            }
 
         handler = COMMAND_HANDLERS.get(command_name)
         if not handler:
@@ -522,18 +523,21 @@ async def discord_interactions(request: Request):
         # Fast commands: respond immediately
         if command_name in IMMEDIATE_COMMANDS:
             return {
-                "type": 4,  # CHANNEL_MESSAGE_WITH_SOURCE
+                "type": 4,
                 "data": {"content": handler()},
             }
 
-        # Slow commands: defer (shows "thinking..."), execute in background, then edit
+        # Slow commands: respond immediately with progress message, edit with result later
         threading.Thread(
             target=run_and_followup,
-            args=(handler, interaction_token, PROGRESS_MESSAGES.get(command_name)),
+            args=(handler, interaction_token),
             daemon=True,
         ).start()
 
-        return {"type": 5}  # DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        return {
+            "type": 4,
+            "data": {"content": PROGRESS_MESSAGES.get(command_name, "Working...")},
+        }
 
     return Response(status_code=400, content="Unknown interaction type")
 
