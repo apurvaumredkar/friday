@@ -8,3 +8,8 @@
 
 ```
 ## Personal agentic AI assistant
+
+Requirements:
+- Python 3.12.x
+- Ollama
+- Docker

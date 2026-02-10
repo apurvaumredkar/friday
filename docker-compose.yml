@@ -1,0 +1,30 @@
+version: '3.8'
+
+volumes:
+  qdrant_data: {}
+  neo4j_data: {}
+  neo4j_logs: {}
+  neo4j_import: {}
+  neo4j_plugins: {}
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    network_mode: "host"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    network_mode: "host"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    environment:
+      - NEO4J_AUTH=neo4j/friday_neo4j
+    restart: unless-stopped

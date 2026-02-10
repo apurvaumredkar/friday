@@ -1,8 +1,11 @@
+python-dotenv
+
 fastapi
 fastmcp
 uvicorn
 
 docker
 
-
 ollama
+
+discord.py

@@ -1,6 +1,13 @@
-data/
 .env
-.venv
-__pycache__/
 services/google_auth.json
+
+.venv
+.nemo
+
+__pycache__/
+
+data/
+
 playground.ipynb
+
+friday.log
