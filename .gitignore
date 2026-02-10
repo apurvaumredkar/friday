@@ -1,0 +1,6 @@
+data/
+.env
+.venv
+__pycache__/
+services/google_auth.json
+playground.ipynb

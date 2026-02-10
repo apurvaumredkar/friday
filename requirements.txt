@@ -1,0 +1,8 @@
+fastapi
+fastmcp
+uvicorn
+
+docker
+
+
+ollama

@@ -1,0 +1,38 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: friday-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:latest
+    container_name: friday-neo4j
+    ports:
+      - "7474:7474"  # HTTP (browser interface)
+      - "7687:7687"  # Bolt protocol
+    volumes:
+      - ./data/neo4j:/data
+    environment:
+      - NEO4J_AUTH=neo4j/friday_neo4j
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: friday-ollama
+    ports:
+      - "11434:11434"  # Ollama API
+    volumes:
+      - /mnt/d/friday/data/ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
