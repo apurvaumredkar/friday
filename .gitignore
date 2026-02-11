@@ -7,7 +7,6 @@ services/google_auth.json
 __pycache__/
 
 data/
-
-playground.ipynb
+sandbox/
 
 friday.log

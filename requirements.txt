@@ -1,11 +1,9 @@
 python-dotenv
 
-fastapi
-fastmcp
-uvicorn
-
-docker
-
 ollama
+google-genai
+
+onnx-asr[gpu,hub]
+kokoro-onnx 
 
 discord.py

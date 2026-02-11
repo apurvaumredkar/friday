@@ -4,9 +4,12 @@ import os
 from dotenv import load_dotenv
 import logging
 
-from ai.agents import root
+# from ai.agents import root
+from ai.agents import web 
 
 logger = logging.getLogger(__name__)
+
+webagent = web.WebAgent()
 
 load_dotenv()
 
@@ -29,7 +32,8 @@ async def on_message(message):
         return
 
     async with message.channel.typing():
-        response = root.reply(message.content)
+        # response = root.reply(message.content)
+        response = webagent.web_search(message.content)
 
         await message.channel.send(response)
 
