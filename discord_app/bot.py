@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 import logging
 
 # from ai.agents import root
-from ai.agents import web 
+from ai.agents import WebAgent 
 
 logger = logging.getLogger(__name__)
 
-webagent = web.WebAgent()
+webagent = WebAgent()
 
 load_dotenv()
 

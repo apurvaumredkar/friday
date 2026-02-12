@@ -3,7 +3,8 @@ from google.genai import types
 import os
 from dotenv import load_dotenv
 
-load_dotenv("/mnt/d/friday/.env")
+
+load_dotenv()
 
 class WebAgent:
     def __init__(self):
