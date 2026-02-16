@@ -7,6 +7,6 @@ services/google_auth.json
 __pycache__/
 
 data/
-sandbox/
+sandbox.ipynb
 
 friday.log
