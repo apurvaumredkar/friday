@@ -1,12 +1,6 @@
 .env
-services/google_auth.json
-
 .venv
-.nemo
-
 __pycache__/
-
 data/
 sandbox.ipynb
-
 friday.log
