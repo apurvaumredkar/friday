@@ -1,14 +1,13 @@
+import os
+import logging
 from .base import BaseAgent
 from google import genai
 from google.genai import types
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
 class WebAgent(BaseAgent):
     def __init__(self):
+        super().__init__()
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         self.model = "gemini-2.5-flash-lite"
         self.system_prompt = "You are a web search agent. Return latest, real-time, and precise information."

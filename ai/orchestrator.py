@@ -52,4 +52,5 @@ class Orchestrator(BaseAgent):
         agent = self.agents.get(agent_name, None)
         if not agent:
             return f"Error: no agent registered for '{agent_name}'"
+        self._logger.info(f"{agent} invoked.")
         return agent.execute(instructions)

@@ -1,19 +1,17 @@
 import logging
-from utils import google_workspace_auth
-from discord_app.bot import run_discord_bot
 from dotenv import load_dotenv
 
 load_dotenv()
+from utils import google_workspace_auth
+from discord_app.bot import run_discord_bot
 
 LOG_FILE = "friday.log"
-
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()],
 )
-
 if __name__ == "__main__":
     google_workspace_auth.run_auth()
     run_discord_bot()
