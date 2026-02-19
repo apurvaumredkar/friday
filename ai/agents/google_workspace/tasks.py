@@ -7,18 +7,19 @@ class GoogleTasksAgent(BaseAgent):
     def __init__(self):
         super().__init__()
         self.service = build("tasks", "v1", credentials=creds)
-        self.system_prompt = f"""You are an agent who can execute functions using the Google Tasks API. Analyse the input query from the user and use the appropriate tools to fulfill the given task. Here are the available tasklists in the user's Google Tasks account, choose the correct one to add/edit/delete tasks from:{self._get_tasklists()}
+        self.system_prompt = f"""You are an agent who can execute functions using the Google Tasks API. Analyse the input query from the user and use the appropriate tools to fulfill the given task.
 
-        Run ```get_tasks``` tool to fetch task ID and metadata before AND after using the CRUD tools like ```create_task```, ```update_task```, ```delete_task```.
+Here are the available tasklists in the user's Google Tasks account, choose the correct one to add/edit/delete tasks from:
+{self._get_tasklists()}
+
+Run ```list_tasks``` tool to fetch the required task ID and metadata before using the ```update_task``` & ```delete_task```.
         
-        RULES
-        - Be descriptive when modifying task detail.
-        - Use the exact tasklist name as specified above.
-        - Acknowledge tool calls with a response.
-        """
+RULES
+- Be descriptive when modifying task detail.
+- Use the exact tasklist name as specified above."""
         self.tools = [
             self.create_task,
-            self.get_tasks,
+            self.list_tasks,
             self.update_task,
             self.delete_task,
         ]
@@ -33,6 +34,15 @@ class GoogleTasksAgent(BaseAgent):
             return out
         except Exception as e:
             err = f"Failed to fetch tasklists: {e}"
+            self._logger.error(err)
+            return err
+    
+    def _get_task(self, task_id, tasklist_id="@default"):
+        try:
+            task = self.service.tasks().get(task=task_id, tasklist=tasklist_id).execute()
+            return task
+        except Exception as e:
+            err = f"Failed to fetch task: {e}"
             self._logger.error(err)
             return err
 
@@ -55,13 +65,13 @@ class GoogleTasksAgent(BaseAgent):
                 .insert(tasklist=tasklist_id, body=task_body)
                 .execute()
             )
-            return f'"{result["title"]}" created successfully in Google Tasks (Task ID: {result["id"]})'
+            return f'"{result["title"]}" created successfully with ID: {result["id"]})'
         except Exception as e:
             err = f"Failed to create task: {str(e)}"
             self._logger.error(err)
             return err
 
-    def get_tasks(self, tasklist_id="@default"):
+    def list_tasks(self, tasklist_id="@default"):
         """
         Fetches all the tasks from the specified tasklist ID.
 
@@ -115,7 +125,7 @@ class GoogleTasksAgent(BaseAgent):
                 .update(task=task_id, tasklist=tasklist_id, body=body)
                 .execute()
             )
-            return "Task has been updated."
+            return f"Task has been updated. Details:\n{self._get_task(task_id=task_id, tasklist_id=tasklist_id)}"
         except Exception as e:
             err = f"Failed to update task: {str(e)}"
             self._logger.error(err)
