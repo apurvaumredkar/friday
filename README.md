@@ -12,9 +12,10 @@ A highly personalized, privacy focused AI assistant with a swarm of agents to ma
 - Web: runs google search using Google genai package
 - Google Workspace (using API services):
   -  Tasks [CRUD tools complete]
-  -  Sheets
-  -  Calendar
+  -  Sheets [planned]
+  -  Calendar [planned]
   -  Drive [WIP]
+- Atlas (uses Places & Directions API) [WIP] 
 ---
 ### Voice Pipeline
 ASR (Nvidia Parakeet 0.6B TDT v2) → Friday orchestrator agent → TTS (Kokoro 82M)
