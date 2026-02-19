@@ -18,16 +18,17 @@ class Orchestrator(BaseAgent):
         }
         self.messages = [{"role": "system", "content": self.system_prompt}]
 
-    async def run(self, user_input):
+    def run(self, user_input):
         if user_input:
             self.messages.append({"role": "user", "content": user_input})
-        for i in range(10):
+        for _ in range(100):
             response = self.chat(
                 messages=self.messages, tools=[self.delegate], temperature=0.5
             )
             tool_calls = response.message.get("tool_calls", None)
             self.messages.append(response.message)
             if not tool_calls:
+                self._logger.info(f"Response: {response.message.content}")
                 return response.message.content
             for call in tool_calls:
                 result = self.execute_tool(call.function.name, call.function.arguments)

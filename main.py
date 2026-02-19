@@ -12,6 +12,10 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()],
 )
+logging.getLogger("discord.opus").setLevel(logging.CRITICAL)
+
+
 if __name__ == "__main__":
+
     google_workspace_auth.run_auth()
     run_discord_bot()
