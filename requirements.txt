@@ -10,6 +10,7 @@ google-auth-oauthlib
 googlemaps
 
 onnx-asr[gpu,hub]
-kokoro-onnx 
+scipy
+kokoro-onnx
 
-discord.py
+pycord[voice]
