@@ -20,6 +20,7 @@ RULES
         self.tools = [
             self.create_task,
             self.list_tasks,
+            self.move_task,
             self.update_task,
             self.delete_task,
         ]
@@ -34,15 +35,6 @@ RULES
             return out
         except Exception as e:
             err = f"Failed to fetch tasklists: {e}"
-            self._logger.error(err)
-            return err
-    
-    def _get_task(self, task_id, tasklist_id="@default"):
-        try:
-            task = self.service.tasks().get(task=task_id, tasklist=tasklist_id).execute()
-            return task
-        except Exception as e:
-            err = f"Failed to fetch task: {e}"
             self._logger.error(err)
             return err
 
@@ -89,6 +81,30 @@ RULES
             self._logger.error(err)
             return {"ERROR": {err}}
 
+    def move_task(self, task_id, source, destination):
+        """
+        Moves a task from one tasklist to another.
+
+        Args:
+            task_id (str): Task ID for the task to be moved
+            source (str): Source Tasklist ID
+            destination (str): Destination Tasklist ID
+
+        Returns:
+            result (dict): Updated task metadata
+        """
+        try:
+            result = (
+                self.service.tasks()
+                .move(tasklist=source, task=task_id, destinationTasklist=destination)
+                .execute()
+            )
+            return result
+        except Exception as e:
+            err = f"Failed to move task: {str(e)}"
+            self._logger.error(err)
+            return {"ERROR": {err}}
+
     def update_task(
         self,
         task_id,
@@ -110,6 +126,9 @@ RULES
             due (str, optional): Scheduled date for the task (as an RFC 3339 timestamp).
             notes (str, optional): Notes describing the task.
             status (str, optional): Status of the task. This is either "needsAction" or "completed".
+
+        Returns:
+            result (dict): Updated task metadata.
         """
         try:
             body = {
@@ -125,11 +144,11 @@ RULES
                 .update(task=task_id, tasklist=tasklist_id, body=body)
                 .execute()
             )
-            return f"Task has been updated. Details:\n{self._get_task(task_id=task_id, tasklist_id=tasklist_id)}"
+            return result
         except Exception as e:
             err = f"Failed to update task: {str(e)}"
             self._logger.error(err)
-            return f"ERROR: {err}"
+            return {"ERROR": {err}}
 
     def delete_task(self, task_id, tasklist_id="@default"):
         """
