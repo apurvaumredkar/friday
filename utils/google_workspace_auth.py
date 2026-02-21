@@ -30,9 +30,9 @@ def run_auth():
             logger.info("Running Google auth flow.")
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
-            with open(TOKEN_PATH, "w") as t:
-                t.write(creds.to_json())
-                logger.info("Credentials refreshed and token stored.")
+        with open(TOKEN_PATH, "w") as t:
+            t.write(creds.to_json())
+            logger.info("Credentials refreshed and token stored.")
 
 
 if __name__ == "__main__":
