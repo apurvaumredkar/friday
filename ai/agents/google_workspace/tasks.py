@@ -232,24 +232,3 @@ You exist to produce correct tool calls, not conversational responses.
             err = f"Failed to delete task: {str(e)}"
             self._logger.error(err)
             return f"ERROR: {err}"
-
-
-# --- Notes from direct API testing (Feb 20, 2026) ---
-#
-# list_tasks() — raw response is very noisy. Each task dict contains ~10 fields
-# (kind, etag, selfLink, webViewLink, position, links, updated...) that are
-# useless to the model. Returning raw dicts causes field confusion in small models:
-# granite4 was observed reading `updated` and labeling it as the due date because
-# `due` was absent and `updated` was the only timestamp visible in the string.
-# Fix: pre-format output here (id, title, status, due only) so Python does the
-# parsing, not the LLM.
-#
-# `due` field missing from UI-set tasks: confirmed via direct API testing (Feb 21).
-# Tasks dated through the Google Tasks web/mobile UI do not populate the `due`
-# field in the API at all. Tasks created via the API with an explicit `due`
-# parameter DO return the field correctly. This is a known Google Tasks v1 API
-# gap — the UI was redesigned ~2018-2019 and the API was never updated to match.
-# No workaround exists in v1. The agent is blind to due dates on any task the
-# user created or dated manually through the UI.
-#
-# @default resolves to "My Tasks" — confirmed equivalent to passing the explicit ID.
