@@ -11,19 +11,18 @@ class Orchestrator(BaseAgent):
         super().__init__()
         with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as s:
             self.system_prompt = s.read()
+        self.messages = [{"role": "system", "content": self.system_prompt}]
         self.agents = {
             "WebAgent": WebAgent(),
-            "GoogleDriveAgent": GoogleDriveAgent(),
             "GoogleTasksAgent": GoogleTasksAgent(),
         }
-        self.messages = [{"role": "system", "content": self.system_prompt}]
 
     def run(self, user_input):
         if user_input:
             self.messages.append({"role": "user", "content": user_input})
-        for _ in range(100):
+        for _ in range(10):
             response = self.chat(
-                messages=self.messages, tools=[self.delegate], temperature=0.5
+                messages=self.messages, tools=[self.delegate], temperature=0.65
             )
             tool_calls = response.message.get("tool_calls", None)
             self.messages.append(response.message)
@@ -40,8 +39,7 @@ class Orchestrator(BaseAgent):
 
         Available agents:
         1. **WebAgent**: Queries the web to feb to fetch real-time and latest information.
-        2. **GoogleTasksAgent**: Handles the user's Google Tasks account to set reminders and to-do lists.
-        3. **GoogleDriveAgent**: Manages files and folder in the user's Google Drive account.
+        2. **GoogleTasksAgent**: Manages the user's personal task and to-do lists, including groceries, shopping, and anything the user needs to remember or buy.
 
         Args:
             agent_name (str): Name of the agent.
