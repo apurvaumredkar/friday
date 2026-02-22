@@ -1,27 +1,86 @@
 ```
 ███████╗██████╗ ██╗██████╗  █████╗ ██╗   ██╗
 ██╔════╝██╔══██╗██║██╔══██╗██╔══██╗╚██╗ ██╔╝
-█████╗  ██████╔╝██║██║  ██║███████║ ╚████╔╝ 
-██╔══╝  ██╔══██╗██║██║  ██║██╔══██║  ╚██╔╝  
-██║     ██║  ██║██║██████╔╝██║  ██║   ██║   
-╚═╝     ╚═╝  ╚═╝╚═╝╚═════╝ ╚═╝  ╚═╝   ╚═╝   
+█████╗  ██████╔╝██║██║  ██║███████║ ╚████╔╝
+██╔══╝  ██╔══██╗██║██║  ██║██╔══██║  ╚██╔╝
+██║     ██║  ██║██║██████╔╝██║  ██║   ██║
+╚═╝     ╚═╝  ╚═╝╚═╝╚═════╝ ╚═╝  ╚═╝   ╚═╝
 ```
-A highly personalized, privacy focused AI assistant with a swarm of agents to make life easy. Orchestrates using the Plan-Execute-Reflect agentic loop, using ollama for inference and runs user interface on a Discord server using discord.py 
 
-### Available agents:
-- Web: runs google search using Google genai package
-- Google Workspace (using API services):
-  -  Tasks [CRUD tools complete]
-  -  Sheets [planned]
-  -  Calendar [planned]
-  -  Drive [WIP]
-- Atlas (uses Places & Directions API) [WIP] 
+A privacy-focused, locally-run AI assistant built on a multi-agent architecture. Runs on Discord — supports both text and voice interaction. All inference is local via Ollama.
+
 ---
-### Voice Pipeline
-ASR (Nvidia Parakeet 0.6B TDT v2) → Friday orchestrator agent → TTS (Kokoro 82M)
 
-Speech modules [WIP] require ONNX runtime packages: ```onnx-asr``` & ```kokoro-onnx```
+## Features
 
-Reference links for setup:
-  - https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx
-  - https://github.com/thewh1teagle/kokoro-onnx
+- **Text & voice interface** over Discord
+- **Multi-agent orchestration** — the orchestrator delegates tasks to specialised sub-agents
+- **Full voice pipeline** — speech-to-text (ASR) → agent response → text-to-speech (TTS), all running locally
+- **Google Workspace integration** via official API services
+
+---
+
+## Agents
+
+| Agent | Description |
+|---|---|
+| **Orchestrator** | Routes requests to sub-agents using Ollama (`granite4:3b-h`) |
+| **WebAgent** | Web search via Google Gemini 2.5 Flash with grounding |
+| **GoogleTasksAgent** | Full CRUD on Google Tasks (create, list, update, move, delete) |
+
+---
+
+## Voice Pipeline
+
+```
+User speaks → Discord → ASR → Orchestrator → TTS → Discord → User hears response
+```
+
+- **ASR**: Nvidia Parakeet TDT 0.6B v2 (ONNX, runs on CPU or CUDA)
+- **TTS**: Kokoro 82M (ONNX, runs on CPU or CUDA)
+- Silence detection triggers transcription after 1.5s of quiet
+
+---
+
+## Installation
+
+### 1. Prerequisites
+
+- [Ollama](https://ollama.com) running locally with `granite4:3b-h` pulled
+- Python 3.12+
+- `libopus0` for Discord voice: `sudo apt install libopus0`
+- A Discord bot token with `message_content` and `voice_states` intents enabled
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Environment variables
+
+Create a `.env` file in the project root:
+
+```
+DISCORD_BOT_TOKEN=
+DISCORD_USER_ID=
+GEMINI_API_KEY=
+```
+
+### 4. Google OAuth
+
+On first run, a browser window will open for Google OAuth. Credentials are saved to `data/google_token.json` for subsequent runs.
+
+### 5. Voice model files
+
+Download and place in `data/parakeet/`:
+- Parakeet ONNX model — [istupakov/parakeet-tdt-0.6b-v2-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx)
+
+Download and place in `data/kokoro/`:
+- `kokoro-v1.0.onnx` and `voices-v1.0.bin` — [thewh1teagle/kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0)
+
+### 6. Run
+
+```bash
+python main.py
+```
