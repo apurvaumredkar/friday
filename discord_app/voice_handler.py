@@ -1,20 +1,20 @@
-import asyncio
+import io
 import threading
 from collections import defaultdict
 import discord
 from ai.speech.asr import transcribe
+from ai.speech.tts import synthesize
 
 SILENCE_TIMEOUT = 1.5
 
 
 class FridaySink(discord.sinks.Sink):
-    def __init__(self, user_id, on_transcription, loop):
-        super().__init__()
+    def __init__(self, user_id, on_transcription, voice_client):
         self.user_id = user_id
         self.on_transcription = on_transcription
-        self.loop = loop
         self._buffers = defaultdict(bytearray)
         self._timers = {}
+        self.voice_client = voice_client
         super().__init__()
 
     def write(self, data, user):
@@ -35,12 +35,17 @@ class FridaySink(discord.sinks.Sink):
 
         def process():
             transcript = transcribe(pcm_bytes)
-            if transcript.strip():
-                self.on_transcription(transcript)
+            if not transcript.strip():
+                return
+            res = self.on_transcription(transcript)
+            if not res:
+                return
+            out = synthesize(res)
+            source = discord.PCMAudio(io.BytesIO(out))
+            if not self.voice_client.is_playing():
+                self.voice_client.play(source)
 
-        asyncio.run_coroutine_threadsafe(
-            self.loop.run_in_executor(None, process), self.loop
-        )
+        process()
 
     def cleanup(self):
         for timer in self._timers.values():

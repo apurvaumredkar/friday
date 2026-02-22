@@ -12,7 +12,7 @@ MODEL_PATH = ROOT / "data" / "parakeet"
 logger = logging.getLogger(__name__)
 vad = onnx_asr.load_vad(VAD_MODEL_NAME)
 model = onnx_asr.load_model(
-    model=ASR_MODEL_NAME, path=MODEL_PATH, providers=["CPUExecutionProvider"]
+    model=ASR_MODEL_NAME, path=MODEL_PATH, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
 ).with_vad(vad)
 
 

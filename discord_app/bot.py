@@ -36,7 +36,7 @@ async def on_voice_state_update(member, before, after):
         else:
             voice_client = await after.channel.connect()
             voice_client.start_recording(
-                FridaySink(USER_ID, friday.run, asyncio.get_event_loop()),
+                FridaySink(USER_ID, friday.run, voice_client),
                 _on_recording_stopped,
             )
             logger.info(f"Friday joined voice channel.")
