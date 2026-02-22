@@ -84,3 +84,34 @@ Download and place in `data/kokoro/`:
 ```bash
 python main.py
 ```
+
+---
+
+## In Progress
+
+| Agent | Description |
+|---|---|
+| **GoogleDriveAgent** | File search and retrieval via Google Drive API |
+| **GoogleSheetsAgent** | Read/write access to Google Sheets |
+| **Atlas** | Navigator agent for places, directions, and maps (Google Maps API) |
+| **NotionAgent** | Notion workspace integration via MCP |
+
+---
+
+## Future Work
+
+- **Long-term memory** — Qdrant (vector store) and Neo4j (knowledge graph) for persistent memory across conversations
+
+---
+
+## Infrastructure
+
+A `docker-compose.yml` is included to spin up the memory backend services:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+- **Qdrant** — vector database (host network, default port 6333)
+- **Neo4j** — graph database (host network, default ports 7474 / 7687)
