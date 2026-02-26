@@ -25,11 +25,6 @@ The bot joins your voice channel when you do, listens for speech, transcribes it
 
 - Python 3.13
 - CUDA-capable GPU
-- [`espeak-ng`](https://github.com/espeak-ng/espeak-ng) — required by Kokoro for phonemization
-  ```bash
-  # Ubuntu/Debian
-  sudo apt install espeak-ng
-  ```
 - A running [n8n](https://n8n.io) instance (self-hosted or cloud)
 - A Discord bot token with the **Voice States** intent enabled
 
