@@ -1,0 +1,7 @@
+python-dotenv
+onnx-asr
+kokoro-onnx
+onnxruntime-gpu[cuda,cudnn]
+requests
+scipy
+py-cord[voice]

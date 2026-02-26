@@ -1,0 +1,299 @@
+{
+  "name": "friday",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "granite4:3b-h",
+        "options": {
+          "temperature": 0.5,
+          "keepAlive": "24h",
+          "lowVram": true,
+          "numCtx": 4096,
+          "useMLock": true,
+          "useMMap": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        240,
+        488
+      ],
+      "id": "b3fc85a4-90c5-4411-a232-30882c5f97c9",
+      "name": "Ollama Chat Model",
+      "retryOnFail": true,
+      "credentials": {
+        "ollamaApi": {
+          "id": "a4GloaHFT2GF0ziW",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.text }}",
+        "options": {
+          "systemMessage": "=CURRENT SYSTEM TIME: {{ $now.toFormat('MMMM d, yyyy h:mm a') }}\n\n## ROLE\nYour name is **Friday**, a friendly chatbot.\n\n## RULES\n- Never fake your responses. Treat user as your friend and do not breach trust. If you are incapable of generating an honest response, be upfront.\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        296,
+        264
+      ],
+      "id": "7ee6298b-c0aa-4560-8786-e4f5b18a284d",
+      "name": "Root",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Input from ASR Module').item.json.body.user_id }}",
+        "contextWindowLength": 50
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        368,
+        488
+      ],
+      "id": "88b475ff-8b27-439c-812d-ee9df3f08299",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Use this tool when user requests real-time or latest information that is NOT present in your training data.",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-lite",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-lite"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('values0_Prompt', ``, 'string') }}"
+            }
+          ]
+        },
+        "builtInTools": {
+          "googleSearch": true
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGeminiTool",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        488
+      ],
+      "id": "bde378ea-28b6-488a-8f1e-adf6d77bec96",
+      "name": "Google Search Tool",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "1IX4MNw9RW0u0W1L",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        704,
+        264
+      ],
+      "id": "933c7754-bb4a-42bf-a01a-cde89d7fdcdb",
+      "name": "Output to TTS Module"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "friday",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        16,
+        116
+      ],
+      "id": "e9e38adb-dadb-417d-8e29-21dc4a844e12",
+      "name": "Input from ASR Module",
+      "webhookId": "82f733dc-362a-4d28-b608-84df3746649a",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "g126e1XH7vK7VT6k",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1474124022953541774",
+          "mode": "list",
+          "cachedResultName": "Friday",
+          "cachedResultUrl": "https://discord.com/channels/1474124022953541774"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1476373230683164783",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/1474124022953541774/1476373230683164783"
+        },
+        "content": "=Friday: {{ $json.output }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        928,
+        264
+      ],
+      "id": "03ed8479-17b1-4f45-ab3c-d0992f5a1e18",
+      "name": "Reply on Discord",
+      "webhookId": "470a01a5-785e-49e7-8f1f-7f273d96b835",
+      "credentials": {
+        "discordBotApi": {
+          "id": "8mFbOyXwV3mtgD7g",
+          "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1474124022953541774",
+          "mode": "list",
+          "cachedResultName": "Friday",
+          "cachedResultUrl": "https://discord.com/channels/1474124022953541774"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1476373230683164783",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/1474124022953541774/1476373230683164783"
+        },
+        "content": "=You: {{ $json.body.text }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        360,
+        -32
+      ],
+      "id": "238e60f0-6a64-4cd7-8bd3-6f7ef75a143e",
+      "name": "Log to Discord Channel",
+      "webhookId": "470a01a5-785e-49e7-8f1f-7f273d96b835",
+      "credentials": {
+        "discordBotApi": {
+          "id": "8mFbOyXwV3mtgD7g",
+          "name": "Discord Bot account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Root",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Root": {
+      "main": [
+        [
+          {
+            "node": "Output to TTS Module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Root",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Search Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Root",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input from ASR Module": {
+      "main": [
+        [
+          {
+            "node": "Root",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to Discord Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Output to TTS Module": {
+      "main": [
+        [
+          {
+            "node": "Reply on Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "b1c9b0f6-4c7f-40b7-8169-0c8ca01f7295",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0aca489b61353257c317fcaa4e7949b87a0c30ddfd4bb9bda59678b9f0bb915c"
+  },
+  "id": "yigSOVsrfRh8yC3S",
+  "tags": []
+}
