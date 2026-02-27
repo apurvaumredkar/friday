@@ -5,6 +5,7 @@ load_dotenv()
 
 import asyncio
 import io
+import signal
 import threading
 from pathlib import Path
 
@@ -15,6 +16,9 @@ import requests
 import discord
 import onnx_asr
 from kokoro_onnx import Kokoro
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 DISCORD_USER_ID = int(os.environ["DISCORD_USER_ID"])
@@ -51,6 +55,7 @@ tts_model = Kokoro.from_session(_tts_session, str(_KOKORO_DIR / "voices-v1.0.bin
 vad_model = onnx_asr.load_vad("silero", path="./data/silero")
 
 SILENCE_TIMEOUT = 1.5
+_shutting_down = False
 _VAD_CHUNK_BYTES = 48000 * 2 * 2 // 2  # 0.5s at 48kHz stereo int16
 
 
@@ -83,16 +88,32 @@ class FridaySink(discord.sinks.PCMSink):
         waveforms = mono_16k[np.newaxis, :]
         waveforms_len = np.array([len(mono_16k)], dtype=np.int64)
         _batch = next(
-            vad_model.segment_batch(waveforms, waveforms_len, 16000, min_speech_duration_ms=100),
+            vad_model.segment_batch(
+                waveforms, waveforms_len, 16000, min_speech_duration_ms=100
+            ),
             None,
         )
         has_speech = bool(list(_batch)) if _batch is not None else False
         if has_speech:
             self._speech_seen = True
+            if self.vc.is_playing():
+                self.vc.stop()
             if self._timer:
                 self._timer.cancel()
             self._timer = threading.Timer(SILENCE_TIMEOUT, self._on_silence)
             self._timer.start()
+
+
+async def speak(text: str, vc: discord.VoiceClient):
+    loop = asyncio.get_running_loop()
+    samples, _ = await loop.run_in_executor(
+        None, lambda: tts_model.create(text, voice="af_heart")
+    )
+    pcm_24k = (samples * 32767).clip(-32768, 32767).astype(np.float32)
+    pcm_48k = resample_poly(pcm_24k, up=2, down=1).astype(np.int16)
+    if vc.is_playing():
+        vc.stop()
+    vc.play(discord.PCMAudio(io.BytesIO(np.column_stack([pcm_48k, pcm_48k]).tobytes())))
 
 
 async def process(sink: FridaySink, vc: discord.VoiceClient):
@@ -110,10 +131,9 @@ async def process(sink: FridaySink, vc: discord.VoiceClient):
             text = await loop.run_in_executor(
                 None, lambda: asr_model.recognize(waveform, sample_rate=48000)
             )
-            print(f"[{user_id}] {text!r}")
             if not text.strip():
                 continue
-            r = await loop.run_in_executor(
+            await loop.run_in_executor(
                 None,
                 lambda: requests.post(
                     WEBHOOK_URL,
@@ -121,22 +141,26 @@ async def process(sink: FridaySink, vc: discord.VoiceClient):
                     auth=(os.environ["N8N_USER"], os.environ["N8N_SECRET"]),
                 ),
             )
-            print(f"webhook: {r.status_code}")
-            if not r.ok or not r.text.strip():
-                continue
-            data = r.json()
-            print(f"webhook response: {data!r}")
-            reply = data[0]["output"] if isinstance(data, list) else data["output"]
-            samples, _ = await loop.run_in_executor(
-                None, lambda: tts_model.create(reply, voice="af_heart")
-            )
-            pcm_24k = (samples * 32767).clip(-32768, 32767).astype(np.float32)
-            pcm_48k = resample_poly(pcm_24k, up=2, down=1).astype(np.int16)
-            vc.play(discord.PCMAudio(io.BytesIO(np.column_stack([pcm_48k, pcm_48k]).tobytes())))
-    except Exception as e:
-        print(f"process error: {e!r}")
-    if vc.is_connected():
+    except Exception:
+        pass
+    if not _shutting_down and vc.is_connected():
         vc.start_recording(FridaySink(), process, vc)
+
+
+api = FastAPI()
+
+
+class SpeakRequest(BaseModel):
+    text: str
+
+
+@api.post("/speak")
+async def speak_endpoint(req: SpeakRequest):
+    vc = next(iter(bot.voice_clients), None)
+    if not vc:
+        raise HTTPException(status_code=503, detail="not connected to voice")
+    await speak(req.text, vc)
+    return {"ok": True}
 
 
 intents = discord.Intents.default()
@@ -171,4 +195,36 @@ async def on_voice_state_update(member, before, after):
         await vc.disconnect()
 
 
-bot.run(os.environ["DISCORD_TOKEN"])
+def _run_api():
+    port = int(os.getenv("TTS_PORT", 8765))
+    uvicorn.run(api, host="0.0.0.0", port=port, log_level="warning")
+
+
+async def shutdown():
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+    print("Shutting down...")
+    for vc in list(bot.voice_clients):
+        try:
+            sink = vc.sink if hasattr(vc, "sink") else None
+            if sink and getattr(sink, "_timer", None):
+                sink._timer.cancel()
+            vc.stop_recording()
+            await vc.disconnect()
+        except Exception:
+            pass
+    await bot.close()
+
+
+async def main():
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: loop.create_task(shutdown()))
+    async with bot:
+        await bot.start(os.environ["DISCORD_TOKEN"])
+
+
+threading.Thread(target=_run_api, daemon=True).start()
+asyncio.run(main())
