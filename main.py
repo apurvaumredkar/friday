@@ -19,11 +19,17 @@ from kokoro_onnx import Kokoro
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 DISCORD_USER_ID = int(os.environ["DISCORD_USER_ID"])
 
+
+_asr_so = rt.SessionOptions()
+_asr_so.intra_op_num_threads = 4
+_asr_so.inter_op_num_threads = 2
+_asr_so.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
 asr_model = onnx_asr.load_model(
     "nemo-parakeet-tdt-0.6b-v2",
     path="./data/nemo-parakeet-tdt-0.6b-v2-int8",
     quantization="int8",
-    providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+    providers=["CPUExecutionProvider"],
+    sess_options=_asr_so,
 )
 
 _KOKORO_DIR = Path("./data/kokoro-82m")
@@ -31,13 +37,13 @@ _KOKORO_DIR.mkdir(parents=True, exist_ok=True)
 _KOKORO_BASE = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
 )
-for _fname in ("kokoro-v1.0.int8.onnx", "voices-v1.0.bin"):
+for _fname in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
     _dest = _KOKORO_DIR / _fname
     if not _dest.exists():
         _dest.write_bytes(requests.get(f"{_KOKORO_BASE}/{_fname}").content)
 
 _tts_session = rt.InferenceSession(
-    str(_KOKORO_DIR / "kokoro-v1.0.int8.onnx"),
+    str(_KOKORO_DIR / "kokoro-v1.0.onnx"),
     providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
 )
 tts_model = Kokoro.from_session(_tts_session, str(_KOKORO_DIR / "voices-v1.0.bin"))
@@ -116,7 +122,7 @@ async def process(sink: FridaySink, vc: discord.VoiceClient):
                 ),
             )
             print(f"webhook: {r.status_code}")
-            if not r.text.strip():
+            if not r.ok or not r.text.strip():
                 continue
             data = r.json()
             print(f"webhook response: {data!r}")
