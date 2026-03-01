@@ -10,4 +10,4 @@ $SITE/nvidia/curand/lib:\
 $SITE/nvidia/nvjitlink/lib\
 ${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-exec .venv/bin/python3 main.py "$@"
+exec .venv/bin/python3 discord_bot.py "$@"

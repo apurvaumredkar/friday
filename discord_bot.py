@@ -7,56 +7,21 @@ import asyncio
 import io
 import signal
 import threading
-from pathlib import Path
 
-import numpy as np
-import onnxruntime as rt
-from scipy.signal import resample_poly
-import requests
 import discord
-import onnx_asr
-from kokoro_onnx import Kokoro
+import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel
+
+from asr import VAD_CHUNK_BYTES, run_vad, transcribe
+from tts import api, synthesize
 
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 DISCORD_USER_ID = int(os.environ["DISCORD_USER_ID"])
 
-
-_asr_so = rt.SessionOptions()
-_asr_so.intra_op_num_threads = 4
-_asr_so.inter_op_num_threads = 2
-_asr_so.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
-asr_model = onnx_asr.load_model(
-    "nemo-parakeet-tdt-0.6b-v2",
-    path="./data/nemo-parakeet-tdt-0.6b-v2-int8",
-    quantization="int8",
-    providers=["CPUExecutionProvider"],
-    sess_options=_asr_so,
-)
-
-_KOKORO_DIR = Path("./data/kokoro-82m")
-_KOKORO_DIR.mkdir(parents=True, exist_ok=True)
-_KOKORO_BASE = (
-    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-)
-for _fname in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
-    _dest = _KOKORO_DIR / _fname
-    if not _dest.exists():
-        _dest.write_bytes(requests.get(f"{_KOKORO_BASE}/{_fname}").content)
-
-_tts_session = rt.InferenceSession(
-    str(_KOKORO_DIR / "kokoro-v1.0.onnx"),
-    providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-)
-tts_model = Kokoro.from_session(_tts_session, str(_KOKORO_DIR / "voices-v1.0.bin"))
-
-vad_model = onnx_asr.load_vad("silero", path="./data/silero")
-
 SILENCE_TIMEOUT = 1.5
 _shutting_down = False
-_VAD_CHUNK_BYTES = 48000 * 2 * 2 // 2  # 0.5s at 48kHz stereo int16
 
 
 class FridaySink(discord.sinks.PCMSink):
@@ -74,27 +39,11 @@ class FridaySink(discord.sinks.PCMSink):
     def write(self, data, user):
         super().write(data, user)
         self._vad_buf.extend(data)
-        if len(self._vad_buf) < _VAD_CHUNK_BYTES:
+        if len(self._vad_buf) < VAD_CHUNK_BYTES:
             return
-        chunk = (
-            np.frombuffer(self._vad_buf, dtype=np.int16)
-            .reshape(-1, 2)
-            .mean(axis=1)
-            .astype(np.float32)
-            / 32768.0
-        )
+        chunk_bytes = bytes(self._vad_buf)
         self._vad_buf.clear()
-        mono_16k = chunk[::3]
-        waveforms = mono_16k[np.newaxis, :]
-        waveforms_len = np.array([len(mono_16k)], dtype=np.int64)
-        _batch = next(
-            vad_model.segment_batch(
-                waveforms, waveforms_len, 16000, min_speech_duration_ms=100
-            ),
-            None,
-        )
-        has_speech = bool(list(_batch)) if _batch is not None else False
-        if has_speech:
+        if run_vad(chunk_bytes):
             self._speech_seen = True
             if self.vc.is_playing():
                 self.vc.stop()
@@ -106,14 +55,10 @@ class FridaySink(discord.sinks.PCMSink):
 
 async def speak(text: str, vc: discord.VoiceClient):
     loop = asyncio.get_running_loop()
-    samples, _ = await loop.run_in_executor(
-        None, lambda: tts_model.create(text, voice="af_heart")
-    )
-    pcm_24k = (samples * 32767).clip(-32768, 32767).astype(np.float32)
-    pcm_48k = resample_poly(pcm_24k, up=2, down=1).astype(np.int16)
+    pcm_bytes = await loop.run_in_executor(None, lambda: synthesize(text))
     if vc.is_playing():
         vc.stop()
-    vc.play(discord.PCMAudio(io.BytesIO(np.column_stack([pcm_48k, pcm_48k]).tobytes())))
+    vc.play(discord.PCMAudio(io.BytesIO(pcm_bytes)))
 
 
 async def process(sink: FridaySink, vc: discord.VoiceClient):
@@ -121,23 +66,14 @@ async def process(sink: FridaySink, vc: discord.VoiceClient):
     try:
         for user_id, audio_data in sink.audio_data.items():
             pcm = audio_data.file.getvalue()
-            waveform = (
-                np.frombuffer(pcm, dtype=np.int16)
-                .reshape(-1, 2)
-                .mean(axis=1)
-                .astype(np.float32)
-                / 32768.0
-            )
-            text = await loop.run_in_executor(
-                None, lambda: asr_model.recognize(waveform, sample_rate=48000)
-            )
-            if not text.strip():
+            text = await loop.run_in_executor(None, lambda: transcribe(pcm))
+            if len(text.strip()) < 2:
                 continue
             await loop.run_in_executor(
                 None,
                 lambda: requests.post(
                     WEBHOOK_URL,
-                    json={"user_id": str(user_id), "text": text},
+                    json={"content": text},
                     auth=(os.environ["N8N_USER"], os.environ["N8N_SECRET"]),
                 ),
             )
@@ -145,9 +81,6 @@ async def process(sink: FridaySink, vc: discord.VoiceClient):
         pass
     if not _shutting_down and vc.is_connected():
         vc.start_recording(FridaySink(), process, vc)
-
-
-api = FastAPI()
 
 
 class SpeakRequest(BaseModel):

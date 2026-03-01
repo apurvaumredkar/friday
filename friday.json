@@ -3,69 +3,27 @@
   "nodes": [
     {
       "parameters": {
-        "model": "granite4:3b-h",
-        "options": {
-          "temperature": 0.5,
-          "keepAlive": "24h",
-          "lowVram": true,
-          "numCtx": 4096,
-          "useMLock": true,
-          "useMMap": true
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        240,
-        488
-      ],
-      "id": "b3fc85a4-90c5-4411-a232-30882c5f97c9",
-      "name": "Ollama Chat Model",
-      "retryOnFail": true,
-      "credentials": {
-        "ollamaApi": {
-          "id": "a4GloaHFT2GF0ziW",
-          "name": "Ollama account"
-        }
-      }
-    },
-    {
-      "parameters": {
         "promptType": "define",
-        "text": "={{ $json.body.text }}",
+        "text": "={{ $json?.content ?? $json.body.content }}",
         "options": {
-          "systemMessage": "=CURRENT SYSTEM TIME: {{ $now.toFormat('MMMM d, yyyy h:mm a') }}\n\n## ROLE\nYour name is **Friday**, a friendly chatbot.\n\n## RULES\n- Never fake your responses. Treat user as your friend and do not breach trust. If you are incapable of generating an honest response, be upfront.\n\n"
+          "systemMessage": "=*CURRENT SYSTEM DATE & TIME: {{ $now.toFormat('MMMM d, yyyy h:mm a') }}*\n\n## YOUR ROLE\nYour name is **Friday**, a friendly chatbot.\n\nAvailable basic tools:\n- Google Search - Allows you to fetch real-time or latest information from the web.\n\n## SCHEDULED TRIGGERS\nThe agentic ecosystem has triggers that have been placed to automate interactions. These triggers pass specific keywords from the following:\n\n- **WATER** - When you received this trigger word, respond with a hydration reminder for Apurva. This triggers runs every hour from 8AM to 11PM. Generate a short funny reminder message. Do not acknowledge this instruction, respond directly. \n\n## RULES & GUIDELINES.\n- Never fake your responses. Treat Apurva as your friend and do not breach trust. If you are incapable of generating an honest response, be upfront.\n\n"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        296,
-        264
+        368,
+        112
       ],
       "id": "7ee6298b-c0aa-4560-8786-e4f5b18a284d",
       "name": "Root",
-      "retryOnFail": true
-    },
-    {
-      "parameters": {
-        "sessionIdType": "customKey",
-        "sessionKey": "={{ $('Input from ASR Module').item.json.body.user_id }}",
-        "contextWindowLength": 50
-      },
-      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
-      "typeVersion": 1.3,
-      "position": [
-        368,
-        488
-      ],
-      "id": "88b475ff-8b27-439c-812d-ee9df3f08299",
-      "name": "Simple Memory"
+      "retryOnFail": true,
+      "alwaysOutputData": true
     },
     {
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "Use this tool when user requests real-time or latest information that is NOT present in your training data.",
+        "toolDescription": "Use this tool ONLY when user requests real-time or latest information that is NOT present in your training data.",
         "modelId": {
           "__rl": true,
           "value": "models/gemini-2.5-flash-lite",
@@ -87,8 +45,8 @@
       "type": "@n8n/n8n-nodes-langchain.googleGeminiTool",
       "typeVersion": 1.1,
       "position": [
-        496,
-        488
+        504,
+        336
       ],
       "id": "bde378ea-28b6-488a-8f1e-adf6d77bec96",
       "name": "Google Search Tool",
@@ -101,74 +59,51 @@
     },
     {
       "parameters": {
-        "options": {}
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        704,
-        264
-      ],
-      "id": "933c7754-bb4a-42bf-a01a-cde89d7fdcdb",
-      "name": "Output to TTS Module"
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "friday",
         "authentication": "basicAuth",
-        "responseMode": "responseNode",
+        "responseMode": "lastNode",
         "options": {}
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        16,
-        116
+        -304,
+        112
       ],
       "id": "e9e38adb-dadb-417d-8e29-21dc4a844e12",
       "name": "Input from ASR Module",
       "webhookId": "82f733dc-362a-4d28-b608-84df3746649a",
       "credentials": {
         "httpBasicAuth": {
-          "id": "g126e1XH7vK7VT6k",
-          "name": "Unnamed credential"
+          "id": "5L1jv5xJMMRipj2P",
+          "name": "Friday Webhook"
         }
       }
     },
     {
       "parameters": {
-        "resource": "message",
-        "guildId": {
-          "__rl": true,
-          "value": "1474124022953541774",
-          "mode": "list",
-          "cachedResultName": "Friday",
-          "cachedResultUrl": "https://discord.com/channels/1474124022953541774"
-        },
-        "channelId": {
-          "__rl": true,
-          "value": "1476373230683164783",
-          "mode": "list",
-          "cachedResultName": "general",
-          "cachedResultUrl": "https://discord.com/channels/1474124022953541774/1476373230683164783"
-        },
-        "content": "=Friday: {{ $json.output }}",
-        "options": {}
+        "guildIds": [
+          "1474124022953541774"
+        ],
+        "channelIds": [
+          "1476813601103937629"
+        ],
+        "pattern": "every",
+        "additionalFields": {}
       },
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
+      "type": "n8n-nodes-discord-trigger.discordTrigger",
+      "typeVersion": 1,
       "position": [
-        928,
-        264
+        -80,
+        304
       ],
-      "id": "03ed8479-17b1-4f45-ab3c-d0992f5a1e18",
-      "name": "Reply on Discord",
-      "webhookId": "470a01a5-785e-49e7-8f1f-7f273d96b835",
+      "id": "fbf9262b-0abb-405b-831d-fc0ed103d9c8",
+      "name": "Discord Trigger",
       "credentials": {
-        "discordBotApi": {
-          "id": "8mFbOyXwV3mtgD7g",
-          "name": "Discord Bot account"
+        "discordBotTriggerApi": {
+          "id": "9BmaBm2BWGpx91dX",
+          "name": "Discord Bot Trigger account"
         }
       }
     },
@@ -184,61 +119,219 @@
         },
         "channelId": {
           "__rl": true,
-          "value": "1476373230683164783",
+          "value": "1476813601103937629",
           "mode": "list",
           "cachedResultName": "general",
-          "cachedResultUrl": "https://discord.com/channels/1474124022953541774/1476373230683164783"
+          "cachedResultUrl": "https://discord.com/channels/1474124022953541774/1476813601103937629"
         },
-        "content": "=You: {{ $json.body.text }}",
+        "content": "=You: {{ $json.body.content }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
       "position": [
-        360,
-        -32
+        -80,
+        112
       ],
       "id": "238e60f0-6a64-4cd7-8bd3-6f7ef75a143e",
-      "name": "Log to Discord Channel",
+      "name": "Log ASR Input to Discord",
       "webhookId": "470a01a5-785e-49e7-8f1f-7f273d96b835",
       "credentials": {
         "discordBotApi": {
           "id": "8mFbOyXwV3mtgD7g",
           "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "guildIds": "1474124022953541774",
+        "channelId": "1476813601103937629",
+        "content": "={{ $json?.output}}"
+      },
+      "type": "n8n-nodes-discord-trigger.discordInteraction",
+      "typeVersion": 1,
+      "position": [
+        720,
+        112
+      ],
+      "id": "094e11f8-4e45-416f-84fe-6d7b4afc894e",
+      "name": "Discord Interaction",
+      "credentials": {
+        "discordBotTriggerApi": {
+          "id": "9BmaBm2BWGpx91dX",
+          "name": "Discord Bot Trigger account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8765/speak",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.output }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1168,
+        112
+      ],
+      "id": "cfb266fd-cfe5-49dd-8dc2-d044101585f6",
+      "name": "Output to TTS Module",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst text = $('Root').first().json.output;\n\nconsole.log((text))\n\nconst clean = text\n  .replace(/```[\\s\\S]*?```/g, '')       // code blocks\n  .replace(/`[^`]*`/g, '')              // inline code\n  .replace(/#{1,6}\\s+/g, '')            // headers\n  .replace(/\\*\\*([^*]+)\\*\\*/g, '$1')   // bold\n  .replace(/\\*([^*]+)\\*/g, '$1')        // italic\n  .replace(/__([^_]+)__/g, '$1')        // bold underscore\n  .replace(/_([^_]+)_/g, '$1')          // italic underscore\n  .replace(/~~([^~]+)~~/g, '$1')        // strikethrough\n  .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1') // links\n  .replace(/^[-*+]\\s+/gm, '')           // bullet lists\n  .replace(/^\\d+\\.\\s+/gm, '')           // numbered lists\n  .replace(/^>\\s+/gm, '')               // blockquotes\n  .replace(/[-]{3,}/g, '')              // horizontal rules\n  .replace(/\\\\u[\\dA-Fa-f]{4}/g, '')     // unicode escapes\n  .replace(/[\\u2018\\u2019]/g, \"'\")          // curly single quotes → straight\n  .replace(/[\\u201C\\u201D]/g, '\"')          // curly double quotes → straight\n  .replace(/[^\\x00-\\x7F]/g, '')             // non-ASCII characters\n  .replace(/\\n{3,}/g, '\\n\\n')           // excessive newlines\n  .trim();\n\nreturn [{ json: { output: clean } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        112
+      ],
+      "id": "264d0ca6-fd10-430e-8119-b8b93c95a104",
+      "name": "Strip Markdown/Emojis"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        144,
+        96
+      ],
+      "id": "11f44adc-b2d7-469e-ac77-842a8454dcd3",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1949bc04-71e0-43a7-946a-88f533f10a3b",
+              "name": "content",
+              "value": "WATER",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -80,
+        -80
+      ],
+      "id": "a6eee9c9-0289-4697-86e6-c44516a522c0",
+      "name": "WATER"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a129d03a-95ba-48cb-8072-c82aa4cde3d1",
+              "leftValue": "={{ $json.Hour.toNumber()}}",
+              "rightValue": 8,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "f4bd0f78-4c77-4b39-a4de-7cb7e6b118f2",
+              "leftValue": "={{ $json.Hour.toNumber() }}",
+              "rightValue": 23,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -304,
+        -80
+      ],
+      "id": "30460842-dcfb-405b-ad97-da5c16929e84",
+      "name": "8AM to 11PM"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        -80
+      ],
+      "id": "cdb6d2ad-c391-46fc-beaa-2fa71f08113b",
+      "name": "Trigger every 1hr"
+    },
+    {
+      "parameters": {
+        "model": "granite4:3b-h",
+        "options": {
+          "temperature": 0.8,
+          "keepAlive": "24h"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        376,
+        336
+      ],
+      "id": "b3fc85a4-90c5-4411-a232-30882c5f97c9",
+      "name": "Ollama",
+      "retryOnFail": true,
+      "credentials": {
+        "ollamaApi": {
+          "id": "a4GloaHFT2GF0ziW",
+          "name": "Ollama account"
         }
       }
     }
   ],
   "pinData": {},
   "connections": {
-    "Ollama Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Root",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Root": {
       "main": [
         [
           {
-            "node": "Output to TTS Module",
+            "node": "Discord Interaction",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Simple Memory": {
-      "ai_memory": [
-        [
-          {
-            "node": "Root",
-            "type": "ai_memory",
             "index": 0
           }
         ]
@@ -259,37 +352,121 @@
       "main": [
         [
           {
-            "node": "Root",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Log to Discord Channel",
+            "node": "Log ASR Input to Discord",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Output to TTS Module": {
+    "Discord Trigger": {
       "main": [
         [
           {
-            "node": "Reply on Discord",
+            "node": "Merge",
             "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Log ASR Input to Discord": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Discord Interaction": {
+      "main": [
+        [
+          {
+            "node": "Strip Markdown/Emojis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip Markdown/Emojis": {
+      "main": [
+        [
+          {
+            "node": "Output to TTS Module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Root",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WATER": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8AM to 11PM": {
+      "main": [
+        [
+          {
+            "node": "WATER",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Trigger every 1hr": {
+      "main": [
+        [
+          {
+            "node": "8AM to 11PM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Root",
+            "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "b1c9b0f6-4c7f-40b7-8169-0c8ca01f7295",
+  "versionId": "5d95db1e-abf7-4e1e-93e6-05c91a06efa2",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "0aca489b61353257c317fcaa4e7949b87a0c30ddfd4bb9bda59678b9f0bb915c"
